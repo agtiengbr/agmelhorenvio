@@ -1,0 +1,5 @@
+zips/*
+bin/*
+*.txt
+cache/**
+config_br.xml

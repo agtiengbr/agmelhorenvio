@@ -1,0 +1,9 @@
+textarea {
+	height: auto !important;
+}
+
+#agmelhorenvio_agency_jadlog_chosen,
+#agmelhorenvio_agency_latam_chosen,
+#agmelhorenvio_agency_total_express_chosen {
+	width: 100% !important;
+}

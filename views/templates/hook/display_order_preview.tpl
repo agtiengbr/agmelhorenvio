@@ -1,0 +1,1 @@
+<button class="btn btn-primary agmelhorenvio-generate-label" title="Após a geração da etiqueta você poderá fazer a compra e impressão da mesma na aba de Etiquetas do módulo." data-id-order="{$id_order}">Gerar Etiqueta do Melhor Envio</button>
