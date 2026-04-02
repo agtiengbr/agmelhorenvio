@@ -113,7 +113,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.16.18';
+        $this->version  = '3.16.19';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -610,6 +610,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         if (Tools::isSubmit('agmelhorenvio-config-configuration')) {
             AgMelhorEnvioConfiguration::setAutoGenerateLabels(Tools::getValue('agmelhorenvio_auto_generate_labels'));
+            AgMelhorEnvioConfiguration::setAutoGenerateLabelStates(Tools::getValue('agmelhorenvio_auto_generate_label_states', []));
             AgMelhorEnvioConfiguration::setHandlingTime(Tools::getValue('agmelhorenvio_handling_time'));
             AgMelhorEnvioConfiguration::setTimeoutClearRequests(Tools::getValue('agmelhorenvio_timeout_clear_requests'));
             AgMelhorEnvioConfiguration::setEnabledCache(Tools::getValue('agmelhorenvio_enabled_cache'));
@@ -622,6 +623,15 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         $helper = $this->generateDefaultHelperForm();
 
         $panels = [];
+        $order_states = OrderState::getOrderStates($this->context->language->id);
+        $order_states_for_select = [];
+        foreach ($order_states as $order_state) {
+            $order_states_for_select[] = [
+                'id' => (int) $order_state['id_order_state'],
+                'name' => $order_state['name']
+            ];
+        }
+
         $panels[0]['form'] = [
             'legend' => [
                 'title' => 'Configurações',
@@ -654,6 +664,20 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                             'label' => 'Não',
                         ),
                     )
+                ],
+                [
+                    'label' => 'Emitir automaticamente ao entrar nestes status',
+                    'name' => 'agmelhorenvio_auto_generate_label_states[]',
+                    'id' => 'agmelhorenvio_auto_generate_label_states',
+                    'type' => 'select',
+                    'multiple' => true,
+                    'size' => 8,
+                    'desc' => 'Selecione um ou mais status. A etiqueta será emitida quando o pedido entrar em um dos status selecionados.',
+                    'options' => [
+                        'id' => 'id',
+                        'name' => 'name',
+                        'query' => $order_states_for_select
+                    ]
                 ],
                 [
                     'label' => 'Manter registro das requisições feitas à API do Melhor Envio por:',
@@ -711,6 +735,8 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         $helper->fields_value['agmelhorenvio_handling_time'] = AgMelhorEnvioConfiguration::getHandlingtime();
         $helper->fields_value['agmelhorenvio_timeout_clear_requests'] = AgMelhorEnvioConfiguration::getTimeoutClearRequests();
         $helper->fields_value['agmelhorenvio_auto_generate_labels'] = AgMelhorEnvioConfiguration::getAutoGenerateLabels();
+        $helper->fields_value['agmelhorenvio_auto_generate_label_states[]'] = AgMelhorEnvioConfiguration::getAutoGenerateLabelStates();
+        $helper->fields_value['agmelhorenvio_auto_generate_label_states'] = AgMelhorEnvioConfiguration::getAutoGenerateLabelStates();
         $helper->fields_value['agmelhorenvio_enabled_cache'] = AgMelhorEnvioConfiguration::getEnabledCache();
         $helper->fields_value['agmelhorenvio_time_expire_cache'] = AgMelhorEnvioConfiguration::getTimeExpireCache() / 3600;
         $helper->fields_value['agmelhorenvio_coupons'] = AgMelhorEnvioConfiguration::getCoupon();
@@ -2370,44 +2396,48 @@ dump($price);
             return;
         }
 
+        $configuredStatusIds = array_map('intval', AgMelhorEnvioConfiguration::getAutoGenerateLabelStates());
+        $newStatusId = isset($param['newOrderStatus']->id) ? (int) $param['newOrderStatus']->id : 0;
+        if ($newStatusId <= 0 || !in_array($newStatusId, $configuredStatusIds)) {
+            return;
+        }
+
         try {
-            if ($param["newOrderStatus"]->paid == 1) {
-                $id_br = Country::getByIso('br');
-                if (strpos(strtoupper(AddressFormat::getAddressCountryFormat($id_br)), 'STATE') === false) {
-                    Logger::addLog('agmelhorenvio - não foi possível gerar a etiqueta porque está faltando adicionar o nome do estado no formulário do endereço' . $param['id_order'], 3);
-                }
+            $id_br = Country::getByIso('br');
+            if (strpos(strtoupper(AddressFormat::getAddressCountryFormat($id_br)), 'STATE') === false) {
+                Logger::addLog('agmelhorenvio - não foi possível gerar a etiqueta porque está faltando adicionar o nome do estado no formulário do endereço' . $param['id_order'], 3);
+            }
 
-                $labels = AgMelhorEnvioLabel::getByIdOrder($param["id_order"]);
-                //se o pedido não possui nenhuma etiqueta do Melhor Envio, não gera uma nova.
-                //as etiquetas são geradas no método validateOrder
-                if (count($labels) == 0) {
-                    return;;
-                }
+            $labels = AgMelhorEnvioLabel::getByIdOrder($param["id_order"]);
+            //se o pedido não possui nenhuma etiqueta do Melhor Envio, não gera uma nova.
+            //as etiquetas são geradas no método validateOrder
+            if (count($labels) == 0) {
+                return;;
+            }
 
-                //utiliza sempre a etiqueta mais recente
-                $label = array_reverse($labels)[0];
+            //utiliza sempre a etiqueta mais recente
+            $label = array_reverse($labels)[0];
 
-                $this->addLabelToCart($label['id_agmelhorenvio_label']);
+            $this->addLabelToCart($label['id_agmelhorenvio_label']);
 
-                $obj = new AgMelhorEnvioLabel($label['id_agmelhorenvio_label']);
+            $obj = new AgMelhorEnvioLabel($label['id_agmelhorenvio_label']);
 
-                if (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] == 'on' || $_SERVER['HTTPS'] == 1) ||  isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https') {
-                    $protocol = 'https://';
-                } else {
-                    $protocol = 'http://';
-                }
+            if (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] == 'on' || $_SERVER['HTTPS'] == 1) ||  isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https') {
+                $protocol = 'https://';
+            } else {
+                $protocol = 'http://';
+            }
 
-                $current_link = $protocol . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
-                $current_link = explode('index.php', $current_link)[0];
+            $current_link = $protocol . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+            $current_link = explode('index.php', $current_link)[0];
 
-                $redirect_url = $current_link . $this->context->link->getAdminLink('AdminAgMelhorEnvioLabels') . '&returnGateway&id_agmelhorenvio_label=' . $obj->id;
+            $redirect_url = $current_link . $this->context->link->getAdminLink('AdminAgMelhorEnvioLabels') . '&returnGateway&id_agmelhorenvio_label=' . $obj->id;
 
-                $response = AgMelhorEnvioGateway::buyLabels([$obj->id_order_remote], 0, $redirect_url);
-                
-                if ($response === true) {
-                    $obj->status = 'released';
-                    $obj->update();
-                }
+            $response = AgMelhorEnvioGateway::buyLabels([$obj->id_order_remote], 0, $redirect_url);
+            
+            if ($response === true) {
+                $obj->status = 'released';
+                $obj->update();
             }
         } catch (Exception $e) {
             Logger::addLog('agmelhorenvio - Erro adicionando etiqueta ao carrinho de compras para o pedido ' . $param['id_order'] . ' - ' . $e->getMessage(), 3);

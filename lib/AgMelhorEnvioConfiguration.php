@@ -35,6 +35,7 @@ class AgMelhorEnvioConfiguration
     protected static $sandbox_payment_mode;
 
     protected static $auto_generate_labels;
+    protected static $auto_generate_label_states;
     protected static $status_mapping_enabled;
     protected static $cnae;
 
@@ -78,6 +79,7 @@ class AgMelhorEnvioConfiguration
             'AGMELHORENVIO_CONFIGURATION_SANDBOX_ENABLED',
 
             'AGMELHORENVIO_AUTO_GENERATE_LABELS',
+            'AGMELHORENVIO_AUTO_GENERATE_LABEL_STATES',
             'AGMELHORENVIO_STATUS_MAPPING_ENABLED',
             'AGMELHORENVIO_COUPONS',
 
@@ -115,6 +117,7 @@ class AgMelhorEnvioConfiguration
         self::$sandbox_payment_mode = $config['AGMELHORENVIO_CONFIGURATION_SANDBOX_PAYMENT_MODE'];
 
         self::$auto_generate_labels = $config['AGMELHORENVIO_AUTO_GENERATE_LABELS'];
+        self::$auto_generate_label_states = self::normalizeOrderStateIds($config['AGMELHORENVIO_AUTO_GENERATE_LABEL_STATES']);
         self::$status_mapping_enabled = $config['AGMELHORENVIO_STATUS_MAPPING_ENABLED'];
         self::$coupon = $config['AGMELHORENVIO_COUPONS'];
     }
@@ -364,6 +367,19 @@ class AgMelhorEnvioConfiguration
         return self::$auto_generate_labels;
     }
 
+    public static function setAutoGenerateLabelStates($state_ids)
+    {
+        $state_ids = self::normalizeOrderStateIds($state_ids);
+        self::$auto_generate_label_states = $state_ids;
+
+        Configuration::updateValue('AGMELHORENVIO_AUTO_GENERATE_LABEL_STATES', implode(',', $state_ids));
+    }
+
+    public static function getAutoGenerateLabelStates()
+    {
+        return self::normalizeOrderStateIds(self::$auto_generate_label_states);
+    }
+
     /**
      * Get the value of shop_name
      */
@@ -481,5 +497,26 @@ class AgMelhorEnvioConfiguration
     {
         Configuration::updateValue('AGMELHORENVIO_CONFIGURATION_SEND_TRACKING_EMAIL', $sendTrackingEmail);
         self::$sendTrackingEmail = $sendTrackingEmail;
+    }
+
+    protected static function normalizeOrderStateIds($state_ids)
+    {
+        if (is_string($state_ids)) {
+            $state_ids = array_filter(explode(',', $state_ids));
+        }
+
+        if (!is_array($state_ids)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($state_ids as $state_id) {
+            $state_id = (int) $state_id;
+            if ($state_id > 0) {
+                $normalized[] = $state_id;
+            }
+        }
+
+        return array_values(array_unique($normalized));
     }
 }
