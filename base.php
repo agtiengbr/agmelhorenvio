@@ -113,7 +113,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.16.19';
+        $this->version  = '3.16.20';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -2905,7 +2905,6 @@ dump($price);
                 throw new Exception("Erro atualizando dados do pedido no banco de dados.");
             }
 
-            $this->module->confirmations[] = "Informações de nota fiscal atualizadas com sucesso!";
             echo json_encode([
                 'success' => true
             ]);
