@@ -3,3 +3,5 @@ bin/*
 *.txt
 cache/**
 config_br.xml
+
+dist/

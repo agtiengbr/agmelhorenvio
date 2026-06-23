@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<module>
+    <name>agmelhorenvio</name>
+    <displayName><![CDATA[Melhor Envio]]></displayName>
+    <version><![CDATA[3.16.20]]></version>
+    <description><![CDATA[Integra a sua loja com o Intermediador de Frete Melhor Envio.]]></description>
+    <author><![CDATA[AGTI]]></author>
+    <tab><![CDATA[shipping_logistics]]></tab>
+    <is_configurable>1</is_configurable>
+    <need_instance>1</need_instance>
+    <limited_countries></limited_countries>
+</module>
