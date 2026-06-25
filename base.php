@@ -113,7 +113,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.16.20';
+        $this->version  = '3.16.21';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -1904,7 +1904,6 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                 $quantity,
                 $postcode_origin
             );
-dump($price);
             if ($price === false) {
                 continue;
             }
@@ -1915,7 +1914,12 @@ dump($price);
             $carrier->img = file_exists(_PS_SHIP_IMG_DIR_ . (int) $carrier->id . '.jpg') ? _THEME_SHIP_DIR_ . (int) $carrier->id . '.jpg' : '';
 
             if ($price > 0) {
-                $price_formated = Tools::displayPrice($price);
+                if ($this->ps17 || $this->ps8) {
+                    $price_formatter = new PrestaShop\PrestaShop\Adapter\Product\PriceFormatter();
+                    $price_formated = $price_formatter->convertAndFormat($price);
+                } else {
+                    $price_formated = Tools::displayPrice($price);
+                }
             } else {
                 $price_formated = "Frete Grátis";
             }
@@ -2059,7 +2063,12 @@ dump($price);
             $price = $response->getPrice();
             if ($price > 0) {
                 $price += Configuration::get('PS_SHIPPING_HANDLING');
-                $price_formated = Tools::displayPrice($price);
+                if ($this->ps17 || $this->ps8) {
+                    $price_formatter = new PrestaShop\PrestaShop\Adapter\Product\PriceFormatter();
+                    $price_formated = $price_formatter->convertAndFormat($price);
+                } else {
+                    $price_formated = Tools::displayPrice($price);
+                }
             } else {
                 $price_formated = "Frete Grátis";
             }
