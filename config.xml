@@ -2,7 +2,7 @@
 <module>
     <name>agmelhorenvio</name>
     <displayName><![CDATA[Melhor Envio]]></displayName>
-    <version><![CDATA[3.16.20]]></version>
+    <version><![CDATA[3.16.21]]></version>
     <description><![CDATA[Integra a sua loja com o Intermediador de Frete Melhor Envio.]]></description>
     <author><![CDATA[AGTI]]></author>
     <tab><![CDATA[shipping_logistics]]></tab>
