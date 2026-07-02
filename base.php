@@ -1,8 +1,6 @@
 <?php
 
 use AGTI\Cliente\Factory\DeliveryTimeFormatterFactory;
-use \PrestaShopBundle\Controller\Admin\Sell\Order\ActionsBarButton;
-
 require_once _PS_MODULE_DIR_ . 'agcliente/lib/AgCarrierModule.php';
 
 class BaseAgMelhorEnvio extends AgCarrierModule
@@ -113,7 +111,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.16.21';
+        $this->version  = '3.16.22';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -2855,8 +2853,14 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $bar = $params['actions_bar_buttons_collection'];
 
+        if (version_compare(_PS_VERSION_, '9', '<')) {
+            $class = '\PrestaShopBundle\Controller\Admin\Sell\Order\ActionsBarButton';
+        } else {
+            $class = '\PrestaShop\PrestaShop\Core\Action\ActionsBarButton';
+        }
+
         $bar->add(
-            new \PrestaShopBundle\Controller\Admin\Sell\Order\ActionsBarButton(
+            new $class(
                 'agmelhorenvio-generate-label btn-action',
                 ['data-id-order' => $params['id_order']],
                 'Atualizar dados da etiqueta'
