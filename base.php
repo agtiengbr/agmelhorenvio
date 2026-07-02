@@ -111,7 +111,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.16.22';
+        $this->version  = '3.16.23';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -2417,7 +2417,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 
             $labels = AgMelhorEnvioLabel::getByIdOrder($param["id_order"]);
             //se o pedido não possui nenhuma etiqueta do Melhor Envio, não gera uma nova.
-            //as etiquetas são geradas no método validateOrder
+            //as etiquetas são geradas no método validateOrde
             if (count($labels) == 0) {
                 return;;
             }
@@ -2714,6 +2714,66 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 
 
     //*************************** HOOKS ******************************/
+    protected function isAdminOrderViewPage()
+    {
+        if ($this->context->controller->controller_name === 'AdminOrders' && Tools::getIsSet('vieworder')) {
+            return true;
+        }
+
+        return !empty($_SERVER['REQUEST_URI'])
+            && preg_match('#/sell/orders/(\d+)/view#', $_SERVER['REQUEST_URI']);
+    }
+
+    protected function getAdminOrderViewId()
+    {
+        if ($this->context->controller->controller_name === 'AdminOrders' && Tools::getValue('id_order')) {
+            return (int) Tools::getValue('id_order');
+        }
+
+        if (!empty($_SERVER['REQUEST_URI'])
+            && preg_match('#/sell/orders/(\d+)/view#', $_SERVER['REQUEST_URI'], $matches)) {
+            return (int) $matches[1];
+        }
+
+        return 0;
+    }
+
+    protected function isAdminOrdersListPage()
+    {
+        if ($this->context->controller->controller_name === 'AdminOrders' && !Tools::getIsSet('vieworder')) {
+            return true;
+        }
+
+        return !empty($_SERVER['REQUEST_URI'])
+            && preg_match('#/sell/orders#', $_SERVER['REQUEST_URI'])
+            && !$this->isAdminOrderViewPage();
+    }
+
+    protected function registerAdminOrdersAssets($controller, $includeViewJs = false)
+    {
+        if ($includeViewJs) {
+            $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_view.js');
+        }
+
+        if (version_compare(_PS_VERSION_, '1.7.7', '>=')) {
+            $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.1.7.7.js');
+            $controller->addCss(_PS_MODULE_DIR_ . $this->name . '/views/css/admin_orders_list.css');
+        } else {
+            $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.js');
+        }
+    }
+
+    protected function appendAdminOrdersJsVars(&$return, $id_order = 0)
+    {
+        $return .= "var agmelhorenvio_ajax_url='" . $this->context->link->getAdminLink('AdminAgMelhorEnvioLabels', true) . "';";
+        $return .= "var agmelhorenvio_token='" . Tools::getAdminTokenLite('AdminAgMelhorEnvioLabels') . "';";
+
+        if ($id_order > 0) {
+            $return .= 'var id_order=' . (int) $id_order . ';';
+        }
+    }
+
+
     public function hookDisplayBackOfficeHeader()
     {
         if (Tools::getValue('action') == 'agmelhorenvio_save_hook_extra_product') {
@@ -2783,15 +2843,13 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 
         $return = '<script type="text/javascript">';
 
-        if ($controller->controller_name === 'AdminOrders' && Tools::getIsSet('vieworder')) {
-            // if ($controller->controller_name === 'AdminOrders') {
-            $order = new Order(Tools::getValue('id_order'));
-            $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_view.js');
-
-            $return .= "var agmelhorenvio_token='" . Tools::getAdminTokenLite('AdminAgMelhorEnvioLabels') . "';";
+        if ($this->isAdminOrderViewPage()) {
+            $id_order = $this->getAdminOrderViewId();
+            $this->registerAdminOrdersAssets($controller, true);
+            $this->appendAdminOrdersJsVars($return, $id_order);
 
             $sql = new DbQuery;
-            $sql->from('orders')->where('id_order=' . (int)Tools::getValue('id_order'));
+            $sql->from('orders')->where('id_order=' . (int) $id_order);
             $invoice_data = Db::getInstance()->getRow($sql);
 
             if ($this->getInvoiceNumberMapping()->isMappingEnabled()) {
@@ -2806,28 +2864,16 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                 $return .= "var agmelhorenvio_invoice_serie='';";
             }
 
-            if (version_compare(_PS_VERSION_, '1.7.7', '>=')) {
-                $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.1.7.7.js');
-                $controller->addCss(_PS_MODULE_DIR_ . $this->name . '/views/css/admin_orders_list.css');
-            } else {
-                $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.js');
+            if ($controller->controller_name === 'AdminOrders' && Tools::getIsSet('vieworder')) {
+                $this->context->controller->page_header_toolbar_btn['melhorenvio_label'] = array(
+                    'href' => '#',
+                    'desc' => 'Criar Etiqueta do Melhor Envio',
+                    'icon' => 'process-icon- icon-truck'
+                );
             }
-
-            $return .= "var agmelhorenvio_token='" . Tools::getAdminTokenLite('AdminAgMelhorEnvioLabels') . "';";
-            $this->context->controller->page_header_toolbar_btn['melhorenvio_label'] = array(
-                'href' => '#',
-                'desc' => 'Criar Etiqueta do Melhor Envio',
-                'icon' => 'process-icon- icon-truck'
-            );
-        } elseif ($controller->controller_name === 'AdminOrders') {
-            if (version_compare(_PS_VERSION_, '1.7.7', '>=')) {
-                $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.1.7.7.js');
-                $controller->addCss(_PS_MODULE_DIR_ . $this->name . '/views/css/admin_orders_list.css');
-            } else {
-                $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.js');
-            }
-
-            $return .= "var agmelhorenvio_token='" . Tools::getAdminTokenLite('AdminAgMelhorEnvioLabels') . "';";
+        } elseif ($this->isAdminOrdersListPage()) {
+            $this->registerAdminOrdersAssets($controller);
+            $this->appendAdminOrdersJsVars($return);
         }
 
         $this->context->controller->addJs([
@@ -2854,15 +2900,18 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         $bar = $params['actions_bar_buttons_collection'];
 
         if (version_compare(_PS_VERSION_, '9', '<')) {
-            $class = '\PrestaShopBundle\Controller\Admin\Sell\Order\ActionsBarButton';
+            $class = \PrestaShopBundle\Controller\Admin\Sell\Order\ActionsBarButton::class;
         } else {
-            $class = '\PrestaShop\PrestaShop\Core\Action\ActionsBarButton';
+            $class = \PrestaShop\PrestaShop\Core\Action\ActionsBarButton::class;
         }
 
         $bar->add(
             new $class(
                 'agmelhorenvio-generate-label btn-action',
-                ['data-id-order' => $params['id_order']],
+                [
+                    'data-id-order' => $params['id_order'],
+                    'href' => '#',
+                ],
                 'Atualizar dados da etiqueta'
             )
         );

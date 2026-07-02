@@ -1,6 +1,25 @@
 $(function(){
     var messages = [];
 
+    function agmelhorenvioAjaxUrl() {
+        return (typeof agmelhorenvio_ajax_url !== 'undefined') ? agmelhorenvio_ajax_url : 'ajax-tab.php';
+    }
+
+    function getOrderIdFromPage()
+    {
+        var match = location.href.match(/id_order=([0-9]*)/);
+        if (match) {
+            return match[1];
+        }
+
+        match = location.href.match(/sell\/orders\/(\d+)\/view/);
+        if (match) {
+            return match[1];
+        }
+
+        return null;
+    }
+
     function addMessage(message, type)
     {
         var alert = document.createElement('div');
@@ -31,7 +50,7 @@ $(function(){
         var invoice_number_input = $('<input/>', {
             name: 'agmelhorenvio_invoice_number',
             id: 'agmelhorenvio_invoice_number',
-            value: agmelhorenvio_invoice_number
+            value: agmelhorenvio_invoice_numbe
         });
 
         var invoice_number_label = $('<label/>',{
@@ -90,7 +109,7 @@ $(function(){
         var invoice_serie = $('#agmelhorenvio_invoice_serie').val();
 
         $.ajax({
-            url: 'ajax-tab.php',
+            url: agmelhorenvioAjaxUrl(),
             data: {
                 controller: 'AdminAgMelhorEnvioLabels',
                 ajax: true,
@@ -99,7 +118,7 @@ $(function(){
 
                 invoice_number: invoice_number,
                 invoice_serie: invoice_serie,
-                id_order: id_order
+                id_order: id_orde
             },
             complete: function(){
                 location.reload();
@@ -116,13 +135,13 @@ $(function(){
         e.preventDefault();
         e.stopPropagation();
 
-        var id_order = location.href.match(/id_order=([0-9]*)/)[1];
+        var id_order = $(this).attr('data-id-order') || getOrderIdFromPage();
 
         removeMessages();
         addMessage('As etiquetas solicitadas estão sendo geradas.', 'info');
 
         $.ajax({
-            url: 'ajax-tab.php',
+            url: agmelhorenvioAjaxUrl(),
             dataType: 'json',
             data :{
                 ajax: true,
@@ -130,7 +149,7 @@ $(function(){
                 action: 'CreateLabelForOrder',
                 token: agmelhorenvio_token,
 
-                id_order: id_order
+                id_order: id_orde
             },
             success: function(data) {
                 removeMessages();
@@ -155,6 +174,7 @@ $(function(){
     }
 
     $('#page-header-desc-order-melhorenvio_label').click(btnGenerateLabelClicked);
+    $(document).on('click', '.agmelhorenvio-generate-label', btnGenerateLabelClicked);
 
     renderInvoiceInputs();
 });

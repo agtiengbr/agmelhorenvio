@@ -4,6 +4,10 @@ document.addEventListener('DOMContentLoaded', function(){
 
 	var messages = [];
 
+	function agmelhorenvioAjaxUrl() {
+		return (typeof agmelhorenvio_ajax_url !== 'undefined') ? agmelhorenvio_ajax_url : 'ajax-tab.php';
+	}
+
 	function confirmMessage() {
         if (confirm('Isso irá cancelar a etiqueta atual do pedido e gerar uma nova etiqueta. Tem certeza?')) {
             return true;
@@ -28,7 +32,7 @@ document.addEventListener('DOMContentLoaded', function(){
 		$(this).prop('disabled', true).addClass('disabled');
 
 		$.ajax({
-			url: 'ajax-tab.php',
+			url: agmelhorenvioAjaxUrl(),
 			dataType: 'json',
 			data :{
 				ajax: true,
@@ -36,7 +40,7 @@ document.addEventListener('DOMContentLoaded', function(){
 				action: 'CreateLabelForOrder',
 				token: agmelhorenvio_token,
 
-				id_order: id_order
+				id_order: id_orde
 			},
 			success: function(data) {
 				if (typeof data.success !== 'undefined' && data.success) {
