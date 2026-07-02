@@ -111,7 +111,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.16.23';
+        $this->version  = '3.16.24';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -124,6 +124,15 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         $this->loadMappings();
         AgMelhorEnvioConfiguration::loadConfigurations();
         $this->initMelhorEnvioGateway();
+    }
+
+    protected function formatDisplayPrice($price)
+    {
+        if (method_exists('Tools', 'displayPrice')) {
+            return Tools::displayPrice($price);
+        }
+        $context = Context::getContext();
+        return $context->getCurrentLocale()->formatPrice($price, $context->currency->iso_code);
     }
 
     public function install()
@@ -1912,12 +1921,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             $carrier->img = file_exists(_PS_SHIP_IMG_DIR_ . (int) $carrier->id . '.jpg') ? _THEME_SHIP_DIR_ . (int) $carrier->id . '.jpg' : '';
 
             if ($price > 0) {
-                if ($this->ps17 || $this->ps8) {
-                    $price_formatter = new PrestaShop\PrestaShop\Adapter\Product\PriceFormatter();
-                    $price_formated = $price_formatter->convertAndFormat($price);
-                } else {
-                    $price_formated = Tools::displayPrice($price);
-                }
+                $price_formated = $this->formatDisplayPrice($price);
             } else {
                 $price_formated = "Frete Grátis";
             }
@@ -2061,12 +2065,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             $price = $response->getPrice();
             if ($price > 0) {
                 $price += Configuration::get('PS_SHIPPING_HANDLING');
-                if ($this->ps17 || $this->ps8) {
-                    $price_formatter = new PrestaShop\PrestaShop\Adapter\Product\PriceFormatter();
-                    $price_formated = $price_formatter->convertAndFormat($price);
-                } else {
-                    $price_formated = Tools::displayPrice($price);
-                }
+                $price_formated = $this->formatDisplayPrice($price);
             } else {
                 $price_formated = "Frete Grátis";
             }
