@@ -2,7 +2,7 @@
 
 require_once 'AgMelhorEnvioCommunicator.php';
 
-class AgMelhorEnvioAgenciesGetter extends AgMelhorEnvioCommunicato
+class AgMelhorEnvioAgenciesGetter extends AgMelhorEnvioCommunicator
 {
 	public function get()
 	{

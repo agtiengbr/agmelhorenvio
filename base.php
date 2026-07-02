@@ -131,6 +131,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         if (method_exists('Tools', 'displayPrice')) {
             return Tools::displayPrice($price);
         }
+
         $context = Context::getContext();
         return $context->getCurrentLocale()->formatPrice($price, $context->currency->iso_code);
     }
