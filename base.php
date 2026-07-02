@@ -112,7 +112,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.16.25';
+        $this->version  = '3.16.26';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -2717,7 +2717,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     //*************************** HOOKS ******************************/
     protected function isAdminOrderViewPage()
     {
-        if ($this->context->controller->controller_name === 'AdminOrders' && Tools::getIsSet('vieworder')) {
+        if ($this->context->controller && $this->context->controller->controller_name === 'AdminOrders' && Tools::getIsSet('vieworder')) {
             return true;
         }
 
@@ -2727,7 +2727,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 
     protected function getAdminOrderViewId()
     {
-        if ($this->context->controller->controller_name === 'AdminOrders' && Tools::getValue('id_order')) {
+        if ($this->context->controller && $this->context->controller->controller_name === 'AdminOrders' && Tools::getValue('id_order')) {
             return (int) Tools::getValue('id_order');
         }
 
@@ -2741,7 +2741,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 
     protected function isAdminOrdersListPage()
     {
-        if ($this->context->controller->controller_name === 'AdminOrders' && !Tools::getIsSet('vieworder')) {
+        if ($this->context->controller && $this->context->controller->controller_name === 'AdminOrders' && !Tools::getIsSet('vieworder')) {
             return true;
         }
 
@@ -2787,25 +2787,20 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         Media::addJsDef($jsDef);
     }
 
-    protected function registerAdminOrdersPageAssets($includeViewJs = false)
-    {
-        $controller = $this->context->controller;
 
-        if ($includeViewJs) {
-            $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_view.js');
+    protected static $adminOrdersAssetsRegistered = false;
+
+    protected function ensureAdminOrdersAssetsLoaded($viewPage = null)
+    {
+        if (self::$adminOrdersAssetsRegistered || !$this->context->controller) {
+            return;
         }
 
-        if (version_compare(_PS_VERSION_, '1.7.7', '>=')) {
-            $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.1.7.7.js');
-            $controller->addCss(_PS_MODULE_DIR_ . $this->name . '/views/css/admin_orders_list.css');
-        } else {
-            $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.js');
+        if ($viewPage === null) {
+            $viewPage = $this->isAdminOrderViewPage();
         }
-    }
 
-    public function hookActionAdminControllerSetMedia($params)
-    {
-        if ($this->isAdminOrderViewPage()) {
+        if ($viewPage) {
             $id_order = $this->getAdminOrderViewId();
             $this->registerAdminOrdersPageAssets(true);
             $this->registerAdminOrdersJsDef($id_order);
@@ -2819,10 +2814,41 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                 ];
             }
         } elseif ($this->isAdminOrdersListPage()) {
-            $this->registerAdminOrdersPageAssets();
+            $this->registerAdminOrdersPageAssets(false);
             $this->registerAdminOrdersJsDef();
+        } else {
+            return;
+        }
+
+        self::$adminOrdersAssetsRegistered = true;
+    }
+
+    protected function registerAdminOrdersPageAssets($includeViewJs = false)
+    {
+        $controller = $this->context->controller;
+
+        if (!$controller) {
+            return;
+        }
+
+        if ($includeViewJs) {
+            $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_view.js');
+        } else {
+            if (version_compare(_PS_VERSION_, '1.7.7', '>=')) {
+                $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.1.7.7.js');
+                $controller->addCss(_PS_MODULE_DIR_ . $this->name . '/views/css/admin_orders_list.css');
+            } else {
+                $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.js');
+            }
         }
     }
+
+
+    public function hookActionAdminControllerSetMedia($params)
+    {
+        $this->ensureAdminOrdersAssetsLoaded();
+    }
+
 
 
 
@@ -2893,6 +2919,8 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             $controller->addJquery();
         }
 
+        $this->ensureAdminOrdersAssetsLoaded();
+
         Media::addJsDef([
             'agmelhorenvio_backoffice_ajax_url' => $this->getAdminOrdersAjaxUrl(),
         ]);
@@ -2902,6 +2930,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         ]);
 
         return '';
+
     }
 
     public function hookActionAdminOrdersListingResultsModifier()
