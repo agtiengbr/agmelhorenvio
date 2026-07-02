@@ -1,9 +1,20 @@
 document.addEventListener('DOMContentLoaded', function(){
+    function agmelhorenvioBackofficeAjaxUrl() {
+        if (typeof agmelhorenvio_backoffice_ajax_url !== 'undefined' && agmelhorenvio_backoffice_ajax_url) {
+            return agmelhorenvio_backoffice_ajax_url;
+        }
+        if (typeof agmelhorenvio_ajax_url !== 'undefined' && agmelhorenvio_ajax_url) {
+            return agmelhorenvio_ajax_url;
+        }
+        return null;
+    }
+
     $('#module_agmelhorenvio .btn-primary').click(function(e){
         e.preventDefault();
         e.stopPropagation();
 
         $.ajax({
+            url: agmelhorenvioBackofficeAjaxUrl(),
             data: {
                 action: 'agmelhorenvio_save_hook_extra_product',
                 zipcode: $('[name=agmelhorenvio_zipcode_origin]').val(),
@@ -38,6 +49,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
     $('[name=agmelhorenvio_zipcode_origin]').change(function(){
         $.ajax({
+            url: agmelhorenvioBackofficeAjaxUrl(),
             data: {
                 action: 'agmelhorenvio_search_address',
                 zipcode: $(this).val()

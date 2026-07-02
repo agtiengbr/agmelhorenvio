@@ -7,6 +7,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 {
     protected $hooks = array(
         'displayBackOfficeHeader',
+        'actionAdminControllerSetMedia',
         //para salvar o pacote associado ao pedido
         'actionValidateOrder',
         'dashboardZoneTwo',
@@ -111,7 +112,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.16.24';
+        $this->version  = '3.16.25';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -2749,8 +2750,47 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             && !$this->isAdminOrderViewPage();
     }
 
-    protected function registerAdminOrdersAssets($controller, $includeViewJs = false)
+    protected function getAdminOrdersAjaxUrl()
     {
+        return $this->context->link->getAdminLink('AdminAgMelhorEnvioLabels', true);
+    }
+
+    protected function registerAdminOrdersJsDef($id_order = 0)
+    {
+        $jsDef = [
+            'agmelhorenvio_ajax_url' => $this->getAdminOrdersAjaxUrl(),
+            'agmelhorenvio_token' => Tools::getAdminTokenLite('AdminAgMelhorEnvioLabels'),
+        ];
+
+        if ($id_order > 0) {
+            $jsDef['id_order'] = (int) $id_order;
+
+            $sql = new DbQuery();
+            $sql->from('orders')->where('id_order=' . (int) $id_order);
+            $invoice_data = Db::getInstance()->getRow($sql);
+
+            if ($this->getInvoiceNumberMapping()->isMappingEnabled()) {
+                $field = $this->getInvoiceNumberMapping()->getMappedField();
+                $jsDef['agmelhorenvio_invoice_number'] = isset($invoice_data[$field]) ? $invoice_data[$field] : '';
+            } else {
+                $jsDef['agmelhorenvio_invoice_number'] = '';
+            }
+
+            if ($this->getInvoiceSerieMapping()->isMappingEnabled()) {
+                $field = $this->getInvoiceSerieMapping()->getMappedField();
+                $jsDef['agmelhorenvio_invoice_serie'] = isset($invoice_data[$field]) ? $invoice_data[$field] : '';
+            } else {
+                $jsDef['agmelhorenvio_invoice_serie'] = '';
+            }
+        }
+
+        Media::addJsDef($jsDef);
+    }
+
+    protected function registerAdminOrdersPageAssets($includeViewJs = false)
+    {
+        $controller = $this->context->controller;
+
         if ($includeViewJs) {
             $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_view.js');
         }
@@ -2763,15 +2803,27 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         }
     }
 
-    protected function appendAdminOrdersJsVars(&$return, $id_order = 0)
+    public function hookActionAdminControllerSetMedia($params)
     {
-        $return .= "var agmelhorenvio_ajax_url='" . $this->context->link->getAdminLink('AdminAgMelhorEnvioLabels', true) . "';";
-        $return .= "var agmelhorenvio_token='" . Tools::getAdminTokenLite('AdminAgMelhorEnvioLabels') . "';";
+        if ($this->isAdminOrderViewPage()) {
+            $id_order = $this->getAdminOrderViewId();
+            $this->registerAdminOrdersPageAssets(true);
+            $this->registerAdminOrdersJsDef($id_order);
 
-        if ($id_order > 0) {
-            $return .= 'var id_order=' . (int) $id_order . ';';
+            $controller = $this->context->controller;
+            if ($controller->controller_name === 'AdminOrders' && Tools::getIsSet('vieworder')) {
+                $controller->page_header_toolbar_btn['melhorenvio_label'] = [
+                    'href' => '#',
+                    'desc' => 'Criar Etiqueta do Melhor Envio',
+                    'icon' => 'process-icon- icon-truck',
+                ];
+            }
+        } elseif ($this->isAdminOrdersListPage()) {
+            $this->registerAdminOrdersPageAssets();
+            $this->registerAdminOrdersJsDef();
         }
     }
+
 
 
     public function hookDisplayBackOfficeHeader()
@@ -2841,47 +2893,15 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             $controller->addJquery();
         }
 
-        $return = '<script type="text/javascript">';
-
-        if ($this->isAdminOrderViewPage()) {
-            $id_order = $this->getAdminOrderViewId();
-            $this->registerAdminOrdersAssets($controller, true);
-            $this->appendAdminOrdersJsVars($return, $id_order);
-
-            $sql = new DbQuery;
-            $sql->from('orders')->where('id_order=' . (int) $id_order);
-            $invoice_data = Db::getInstance()->getRow($sql);
-
-            if ($this->getInvoiceNumberMapping()->isMappingEnabled()) {
-                $return .= "var agmelhorenvio_invoice_number='" . $invoice_data[$this->getInvoiceNumberMapping()->getMappedField()] . "';";
-            } else {
-                $return .= "var agmelhorenvio_invoice_number='';";
-            }
-
-            if ($this->getInvoiceSerieMapping()->isMappingEnabled()) {
-                $return .= "var agmelhorenvio_invoice_serie='" . $invoice_data[$this->getInvoiceSerieMapping()->getMappedField()]  . "';";
-            } else {
-                $return .= "var agmelhorenvio_invoice_serie='';";
-            }
-
-            if ($controller->controller_name === 'AdminOrders' && Tools::getIsSet('vieworder')) {
-                $this->context->controller->page_header_toolbar_btn['melhorenvio_label'] = array(
-                    'href' => '#',
-                    'desc' => 'Criar Etiqueta do Melhor Envio',
-                    'icon' => 'process-icon- icon-truck'
-                );
-            }
-        } elseif ($this->isAdminOrdersListPage()) {
-            $this->registerAdminOrdersAssets($controller);
-            $this->appendAdminOrdersJsVars($return);
-        }
+        Media::addJsDef([
+            'agmelhorenvio_backoffice_ajax_url' => $this->getAdminOrdersAjaxUrl(),
+        ]);
 
         $this->context->controller->addJs([
             $this->_path . 'views/js/admin_products_extra.js'
         ]);
 
-        $return .= '</script>';
-        return $return;
+        return '';
     }
 
     public function hookActionAdminOrdersListingResultsModifier()
@@ -2910,6 +2930,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                 'agmelhorenvio-generate-label btn-action',
                 [
                     'data-id-order' => $params['id_order'],
+                    'data-ajax-url' => $this->getAdminOrdersAjaxUrl(),
                     'href' => '#',
                 ],
                 'Atualizar dados da etiqueta'

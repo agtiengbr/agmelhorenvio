@@ -5,8 +5,19 @@ document.addEventListener('DOMContentLoaded', function(){
 	var messages = [];
 
 	function agmelhorenvioAjaxUrl() {
-		return (typeof agmelhorenvio_ajax_url !== 'undefined') ? agmelhorenvio_ajax_url : 'ajax-tab.php';
+		if (typeof agmelhorenvio_ajax_url !== 'undefined' && agmelhorenvio_ajax_url) {
+			return agmelhorenvio_ajax_url;
+		}
+
+		var el = document.querySelector('.agmelhorenvio-generate-label[data-ajax-url]');
+		if (el) {
+			return el.getAttribute('data-ajax-url');
+		}
+
+		console.error('agmelhorenvio: agmelhorenvio_ajax_url is not defined');
+		return null;
 	}
+
 
 	function addMessage(message, type)
 	{
@@ -56,7 +67,7 @@ document.addEventListener('DOMContentLoaded', function(){
 				action: 'CreateLabelForOrder',
 				token: agmelhorenvio_token,
 
-				id_order: id_orde
+				id_order: id_order
 			},
 			success: function(data) {
 				if (typeof data.success !== 'undefined' && data.success) {

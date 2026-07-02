@@ -2,8 +2,19 @@ $(function(){
     var messages = [];
 
     function agmelhorenvioAjaxUrl() {
-        return (typeof agmelhorenvio_ajax_url !== 'undefined') ? agmelhorenvio_ajax_url : 'ajax-tab.php';
+        if (typeof agmelhorenvio_ajax_url !== 'undefined' && agmelhorenvio_ajax_url) {
+            return agmelhorenvio_ajax_url;
+        }
+
+        var el = document.querySelector('.agmelhorenvio-generate-label[data-ajax-url]');
+        if (el) {
+            return el.getAttribute('data-ajax-url');
+        }
+
+        console.error('agmelhorenvio: agmelhorenvio_ajax_url is not defined');
+        return null;
     }
+
 
     function getOrderIdFromPage()
     {
@@ -48,13 +59,13 @@ $(function(){
         });
 
         var invoice_number_input = $('<input/>', {
-            name: 'agmelhorenvio_invoice_number',
-            id: 'agmelhorenvio_invoice_number',
-            value: agmelhorenvio_invoice_numbe
+            name: 'agmelhorenvio_invoice_numberr',
+            id: 'agmelhorenvio_invoice_numberr',
+            value: agmelhorenvio_invoice_number
         });
 
         var invoice_number_label = $('<label/>',{
-            for: 'agmelhorenvio_invoice_number',
+            for: 'agmelhorenvio_invoice_numberr',
             text: 'Número da Nota Fiscal',
             class: 'control-label col-lg-3'
         });
@@ -105,7 +116,7 @@ $(function(){
 
     function submitInvoiceData()
     {
-        var invoice_number = $('#agmelhorenvio_invoice_number').val();
+        var invoice_number = $('#agmelhorenvio_invoice_numberr').val();
         var invoice_serie = $('#agmelhorenvio_invoice_serie').val();
 
         $.ajax({
@@ -118,7 +129,7 @@ $(function(){
 
                 invoice_number: invoice_number,
                 invoice_serie: invoice_serie,
-                id_order: id_orde
+                id_order: id_order
             },
             complete: function(){
                 location.reload();
@@ -149,7 +160,7 @@ $(function(){
                 action: 'CreateLabelForOrder',
                 token: agmelhorenvio_token,
 
-                id_order: id_orde
+                id_order: id_order
             },
             success: function(data) {
                 removeMessages();
