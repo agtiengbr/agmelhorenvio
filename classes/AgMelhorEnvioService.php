@@ -44,6 +44,17 @@ class AgMelhorEnvioService extends AgObjectModel
                 'validate' => 'isInt',
                 'default' => 0
             ),
+            'shipment_type' => array(
+                'type' => self::TYPE_STRING,
+                'db_type' => 'varchar(32)',
+                'validate' => 'isGenericName',
+                'default' => 'hybrid'
+            ),
+            'wait_nfe_xml' => array(
+                'type' => self::TYPE_BOOL,
+                'db_type' => 'bool',
+                'default' => 0
+            ),
         ),
         'indexes' => array(
             array(
@@ -72,6 +83,64 @@ class AgMelhorEnvioService extends AgObjectModel
     public $additional_cost;
     public $additional_cost_type;
     public $additional_time;
+
+    public $shipment_type;
+    public $wait_nfe_xml;
+
+    /** @var string|null URL da imagem remota ao sincronizar (não é coluna) */
+    public $picture_url;
+
+    public function requiresInvoice()
+    {
+        foreach ($this->getRequirements() as $requirement) {
+            $option = $requirement->getOption();
+            if (Validate::isLoadedObject($option) && $option->name === 'invoice') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function allowsNonCommercial()
+    {
+        return !$this->requiresInvoice();
+    }
+
+    public function isAzulCargo()
+    {
+        return stripos((string) $this->carrier_name, 'Azul') !== false;
+    }
+
+    public function normalizeShipmentSettings()
+    {
+        $validTypes = AgMelhorEnvioShipmentTypesEnum::getAll();
+        if (!in_array($this->shipment_type, $validTypes, true)) {
+            $this->shipment_type = $this->allowsNonCommercial()
+                ? AgMelhorEnvioShipmentTypesEnum::HYBRID
+                : AgMelhorEnvioShipmentTypesEnum::COMMERCIAL;
+        }
+
+        if (!$this->allowsNonCommercial()
+            && in_array($this->shipment_type, [
+                AgMelhorEnvioShipmentTypesEnum::NON_COMMERCIAL,
+                AgMelhorEnvioShipmentTypesEnum::HYBRID,
+            ], true)
+        ) {
+            $this->shipment_type = AgMelhorEnvioShipmentTypesEnum::COMMERCIAL;
+        }
+
+        if ($this->isAzulCargo()) {
+            $this->shipment_type = AgMelhorEnvioShipmentTypesEnum::COMMERCIAL;
+            $this->wait_nfe_xml = 1;
+        }
+
+        if ($this->shipment_type !== AgMelhorEnvioShipmentTypesEnum::COMMERCIAL) {
+            $this->wait_nfe_xml = 0;
+        } else {
+            $this->wait_nfe_xml = (int) (bool) $this->wait_nfe_xml;
+        }
+    }
 
     public static function getByIdRemote($id_remote)
     {
@@ -113,6 +182,10 @@ class AgMelhorEnvioService extends AgObjectModel
             $current_service->picture_url = $service->getPicture();
             $current_service->insurance = $company->getName() == 'Correios' ? ( isset($current_service->insurance) ? $current_service->insurance : 0 ) : 1;
 
+            if (!$current_service->shipment_type) {
+                $current_service->shipment_type = AgMelhorEnvioShipmentTypesEnum::HYBRID;
+            }
+
             if (!$current_service->save()) {
                 $msg_error = Db::getInstance()->getMsgError();
                 throw new AgMelhorEnvioServiceSavingException("Erro instalando o serviço {$current_service->name} - {$msg_error}");
@@ -121,6 +194,12 @@ class AgMelhorEnvioService extends AgObjectModel
             //salva os parâmetros opcionais e obrigatórios do serviço
             AgMelhorEnvioServiceRequirement::updateForService($current_service, $service->getRequirements());
             AgMelhorEnvioServiceOptional::updateForService($current_service, $service->getOptional());
+
+            $current_service->normalizeShipmentSettings();
+            if (!$current_service->save()) {
+                $msg_error = Db::getInstance()->getMsgError();
+                throw new AgMelhorEnvioServiceSavingException("Erro normalizando tipo de envio do serviço {$current_service->name} - {$msg_error}");
+            }
         }
     }
 

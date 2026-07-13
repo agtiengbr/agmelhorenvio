@@ -390,12 +390,22 @@ class AgMelhorEnvioLabel extends AgObjectModel
         return $shipping;
     }
 
-    public static function generateLabelsForOrder(Order $order)
+    /**
+     * @param Order $order
+     * @param AgMelhorEnvioService|null $service Serviço ME a usar (obrigatório se o pedido não tiver carrier ME)
+     * @return true|string true em sucesso, ou mensagem de erro
+     */
+    public static function generateLabelsForOrder(Order $order, $service = null)
     {
-        
         $module = new agmelhorenvio;
 
-        $service = AgMelhorEnvioService::getByCarrier(new Carrier($order->id_carrier));
+        if (!($service instanceof AgMelhorEnvioService) || !Validate::isLoadedObject($service)) {
+            $service = AgMelhorEnvioService::getByCarrier(new Carrier($order->id_carrier));
+        }
+
+        if (!Validate::isLoadedObject($service) || !(int) $service->id_remote) {
+            return 'Selecione um serviço do Melhor Envio válido para gerar a etiqueta.';
+        }
 
         foreach ($order->getProducts() as $product) {
             $id_product = $product['product_id'];
@@ -500,6 +510,15 @@ class AgMelhorEnvioLabel extends AgObjectModel
                             Logger::addLog('agmelhornevio - Erro gerando etiqueta para o pedido ' . $order->id . ' - ' . $msg_error);
                             continue;
                         }
+
+                        AgMelhorEnvioShipmentLog::addLog(
+                            $order->id,
+                            AgMelhorEnvioShipmentLog::EVENT_LABEL_CREATED,
+                            'Etiqueta criada',
+                            true,
+                            $obj->id,
+                            ['status' => $obj->status, 'service_id' => $obj->service_id]
+                        );
 
                         foreach ($products as $product) {
                             $ids = explode('-', $product->id);

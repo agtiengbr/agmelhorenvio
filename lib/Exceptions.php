@@ -24,3 +24,5 @@ class AgMelhorEnvioServiceOptionalFindingException extends Exception{};
 class AgMelhorEnvioPackageDatabaseException extends Exception{};
 
 class AgMelhorEnvioUnauthenticatedException extends Exception{};
+
+class AgMelhorEnvioWaitingForNfeException extends Exception{};

@@ -145,12 +145,83 @@ class AdminAgMelhorEnvioServicesController extends ModuleAdminController
                     'type' => 'text',
                     'col' => 2,
                 ],
+                [
+                    'type' => 'html',
+                    'label' => 'Tipo de Envio',
+                    'name' => 'shipment_type_config',
+                    'html_content' => '',
+                ],
+                [
+                    'type' => 'html',
+                    'label' => 'Aguardar XML da NF-e',
+                    'name' => 'wait_nfe_xml_config',
+                    'form_group_class' => 'agmelhorenvio-wait-nfe-xml-group',
+                    'html_content' => '',
+                ],
             ],
             'submit' => [
                 'title' => 'Salvar',
                 'class' => 'btn btn-default pull-right'
             ],
         ];
+    }
+
+    public function renderForm()
+    {
+        $this->loadObject(true);
+        $service = $this->object instanceof AgMelhorEnvioService ? $this->object : new AgMelhorEnvioService();
+        $service->normalizeShipmentSettings();
+
+        $tplVars = [
+            'shipment_type' => $service->shipment_type ?: AgMelhorEnvioShipmentTypesEnum::HYBRID,
+            'wait_nfe_xml' => (int) $service->wait_nfe_xml,
+            'allows_non_commercial' => $service->allowsNonCommercial(),
+            'is_azul' => $service->isAzulCargo(),
+        ];
+        $this->context->smarty->assign($tplVars);
+
+        $shipmentHtml = $this->context->smarty->fetch(
+            _PS_MODULE_DIR_ . $this->module->name . '/views/templates/admin/ag_melhor_envio_services/shipment_type_form.tpl'
+        );
+        $waitHtml = $this->context->smarty->fetch(
+            _PS_MODULE_DIR_ . $this->module->name . '/views/templates/admin/ag_melhor_envio_services/wait_nfe_xml_form.tpl'
+        );
+
+        foreach ($this->fields_form['input'] as &$input) {
+            if ($input['name'] === 'shipment_type_config') {
+                $input['html_content'] = $shipmentHtml;
+            } elseif ($input['name'] === 'wait_nfe_xml_config') {
+                $input['html_content'] = $waitHtml;
+                if ($service->shipment_type !== AgMelhorEnvioShipmentTypesEnum::COMMERCIAL) {
+                    $input['form_group_class'] = 'agmelhorenvio-wait-nfe-xml-group hide';
+                }
+            }
+        }
+        unset($input);
+
+        return parent::renderForm();
+    }
+
+    public function postProcess()
+    {
+        $submittedShipmentType = Tools::getValue('shipment_type', null);
+        $submittedWaitXml = Tools::getValue('wait_nfe_xml', null);
+
+        $result = parent::postProcess();
+
+        if (Validate::isLoadedObject($this->object) && $this->object instanceof AgMelhorEnvioService) {
+            if ($submittedShipmentType !== null) {
+                $this->object->shipment_type = $submittedShipmentType;
+            }
+            if ($submittedWaitXml !== null) {
+                $this->object->wait_nfe_xml = (int) $submittedWaitXml;
+            }
+
+            $this->object->normalizeShipmentSettings();
+            $this->object->update();
+        }
+
+        return $result;
     }
 
     public function initPageHeaderToolbar()

@@ -109,20 +109,27 @@ document.addEventListener('DOMContentLoaded', function () {
         var button = e && e.currentTarget ? e.currentTarget : this;
         var idOrder = button.getAttribute('data-id-order') || getOrderIdFromPage();
         var ajaxUrl = agmelhorenvioAjaxUrl();
+        var serviceSelect = document.getElementById('agmelhorenvio_service_id');
+        var serviceId = serviceSelect ? serviceSelect.value : '';
 
         removeMessages();
         addMessage('As etiquetas solicitadas estão sendo geradas.', 'info');
         button.setAttribute('disabled', 'disabled');
 
+        var params = {
+            ajax: 1,
+            controller: 'AdminAgMelhorEnvioLabels',
+            action: 'CreateLabelForOrder',
+            token: typeof agmelhorenvio_token !== 'undefined' ? agmelhorenvio_token : '',
+            id_order: idOrder,
+        };
+        if (serviceId) {
+            params.id_agmelhorenvio_service = serviceId;
+        }
+
         ajaxRequest(
             ajaxUrl,
-            {
-                ajax: 1,
-                controller: 'AdminAgMelhorEnvioLabels',
-                action: 'CreateLabelForOrder',
-                token: typeof agmelhorenvio_token !== 'undefined' ? agmelhorenvio_token : '',
-                id_order: idOrder,
-            },
+            params,
             function (data) {
                 removeMessages();
                 button.removeAttribute('disabled');

@@ -43,6 +43,7 @@ class AgMelhorEnvioTrackLabelsModuleFrontController extends ModuleFrontControlle
 			$agme_label = AgMelhorEnvioLabel::getByIdOrderRemote($label->getId());
 
 			if (Validate::isLoadedObject($agme_label)) {
+				$previousStatus = $agme_label->status;
 				$agme_label->status = $label->getStatus();
 
 				$agme_label->paid_at        = $label->getPaidAt();
@@ -56,6 +57,22 @@ class AgMelhorEnvioTrackLabelsModuleFrontController extends ModuleFrontControlle
 				$agme_label->self_tracking  = $label->getSelfTracking();
 
 				$agme_label->update();
+
+				if ($previousStatus !== $agme_label->status) {
+					$statusText = AgMelhorEnvioLabel::getStatusText($agme_label->status);
+					AgMelhorEnvioShipmentLog::addLog(
+						$agme_label->id_order,
+						AgMelhorEnvioShipmentLog::EVENT_LABEL_TRACKED,
+						'Etiqueta rastreada — estado atualizado para ' . $statusText,
+						true,
+						$agme_label->id,
+						[
+							'from' => $previousStatus,
+							'to' => $agme_label->status,
+							'tracking' => $agme_label->tracking,
+						]
+					);
+				}
 			}
 		}
 

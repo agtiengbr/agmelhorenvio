@@ -143,6 +143,13 @@ class AdminAgMelhorEnvioLabelsPrintController extends ModuleAdminController
                 if ($response === true) {
                     $instance->status = 'released';
                     $instance->update();
+                    AgMelhorEnvioShipmentLog::addLog(
+                        $instance->id_order,
+                        AgMelhorEnvioShipmentLog::EVENT_LABEL_PAID,
+                        'Etiqueta paga',
+                        true,
+                        $instance->id
+                    );
                     
                     $this->module->confirmations[] = 'Etiqueta paga com sucesso!';
                 } else {
@@ -212,9 +219,18 @@ class AdminAgMelhorEnvioLabelsPrintController extends ModuleAdminController
                 // Marca como impressa para permitir reimpressão e bloquear novo add ao carrinho
                 $instance->status = AgMelhorEnvioLabelsStatusesEnum::PRINTED;
                 $instance->update();
-                
+                AgMelhorEnvioShipmentLog::addLog(
+                    $instance->id_order,
+                    AgMelhorEnvioShipmentLog::EVENT_LABEL_PRINTED,
+                    'Etiqueta impressa',
+                    true,
+                    $instance->id
+                );
+
                 header("Location: $response");
                 exit();
+            } catch (AgMelhorEnvioWaitingForNfeException $e) {
+                $this->module->errors[] = $e->getMessage();
             } catch(Exception $e) {
                 Logger::addLog($e->getMessage(), 3);
                 $this->module->errors[] = $e->getMessage();

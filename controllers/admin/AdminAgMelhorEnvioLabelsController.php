@@ -218,6 +218,8 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
                 $this->generateLabels($packages);
 
                 $this->module->confirmations[] = "Etiqueta gerada com sucesso!";
+            } catch (AgMelhorEnvioWaitingForNfeException $e) {
+                $this->module->errors[] = $e->getMessage();
             } catch(Exception $e) {
                 Logger::addLog($e->getMessage(), 3);
                 $this->module->errors[] = $e->getMessage();
@@ -313,6 +315,13 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
             if ($response === true) {
                 $label->status = 'released';
                 $label->update();
+                AgMelhorEnvioShipmentLog::addLog(
+                    $label->id_order,
+                    AgMelhorEnvioShipmentLog::EVENT_LABEL_PAID,
+                    'Etiqueta paga',
+                    true,
+                    $label->id
+                );
             } else {
                 $label->payment_link = $response;
                 $r = $label->update();
@@ -352,6 +361,13 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
             foreach ($labels as $label) {
                 $label->status = AgMelhorEnvioLabelsStatusesEnum::PRINTED;
                 $label->update();
+                AgMelhorEnvioShipmentLog::addLog(
+                    $label->id_order,
+                    AgMelhorEnvioShipmentLog::EVENT_LABEL_PRINTED,
+                    'Etiqueta impressa',
+                    true,
+                    $label->id
+                );
             }
 
             header("Location: $response");
@@ -386,6 +402,14 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
                 if ($cancellation->getCanceled()) {
                     $label->status = AgMelhorEnvioLabelsStatusesEnum::CANCELED;
                     $label->update();
+
+                    AgMelhorEnvioShipmentLog::addLog(
+                        $label->id_order,
+                        AgMelhorEnvioShipmentLog::EVENT_LABEL_CANCELED,
+                        'Etiqueta cancelada',
+                        true,
+                        $label->id
+                    );
 
                     $this->module->confirmations[] = "Etiqueta $label->id cancelada com sucesso.";
                 } else {
@@ -559,7 +583,7 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
     public function ajaxProcessSaveInvoiceData()
     {
         try {
-            $id_order = Tools::getValue('id_order');
+            $id_order = (int) Tools::getValue('id_order');
 
             $invoice_number_mapping = $this->module->getInvoiceNumberMapping();
             if (!$invoice_number_mapping->isMappingEnabled()) {
@@ -571,53 +595,169 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
                 throw new Exception("O mapeamento da série da nota fiscal não está configurado.");
             }
 
+            $number = Tools::getValue('agmelhorenvio_invoice_number', Tools::getValue('invoice_number'));
+            $serie = Tools::getValue('agmelhorenvio_invoice_serie', Tools::getValue('invoice_serie'));
+
             $update_data = [];
+            $update_data[$invoice_number_mapping->getMappedfield()] = $number;
+            $update_data[$invoice_serie_mapping->getMappedfield()] = $serie;
 
-            $update_data[$invoice_number_mapping->getMappedfield()] = Tools::getValue('invoice_number');
-            $update_data[$invoice_serie_mapping->getMappedfield()] = Tools::getValue('invoice_serie');            
-
-            $r = Db::getInstance()->update('orders', $update_data, 'id_order=' . (int)$id_order);
+            $r = Db::getInstance()->update('orders', $update_data, 'id_order=' . (int) $id_order);
             if (!$r) {
                 $msg_error = Db::getInstance()->getMsgError();
-
                 Logger::addLog("agmelhorenvio - Erro atualizando dados do pedido {$id_order} no banco de dados - $msg_error");
                 throw new Exception("Erro atualizando dados do pedido no banco de dados.");
             }
-            
-            $this->module->confirmations[] = "Informações de nota fiscal atualizadas com sucesso!";
+
             echo json_encode([
-                'success' => true
+                'success' => true,
+                'message' => 'Informações de nota fiscal atualizadas com sucesso!',
+                'reload' => false,
             ]);
         } catch (Exception $e) {
-            $this->module->errors[] = $e->getMessage();
             echo json_encode([
                 'success' => false,
                 'error' => $e->getMessage()
             ]);
         }
 
-        $this->module->saveNotifications();
+        exit();
+    }
+
+    public function ajaxProcessUploadOrderNfeXml()
+    {
+        try {
+            $id_order = (int) Tools::getValue('id_order');
+            if ($id_order <= 0) {
+                throw new Exception('Pedido inválido.');
+            }
+
+            if (empty($_FILES['nfe_xml']['tmp_name'])) {
+                throw new Exception('Selecione um arquivo XML da NF-e.');
+            }
+
+            $nfe = AgMelhorEnvioOrderNfe::saveUpload(
+                $id_order,
+                $_FILES['nfe_xml']['tmp_name'],
+                isset($_FILES['nfe_xml']['name']) ? $_FILES['nfe_xml']['name'] : 'nfe.xml'
+            );
+
+            // Preenche chave/número mapeados quando possível
+            $invoice_number_mapping = $this->module->getInvoiceNumberMapping();
+            $invoice_serie_mapping = $this->module->getInvoiceSerieMapping();
+            $update_data = [];
+
+            if ($invoice_serie_mapping->isMappingEnabled() && $nfe->nfe_key) {
+                $update_data[$invoice_serie_mapping->getMappedfield()] = $nfe->nfe_key;
+            }
+
+            $xml = $nfe->getXmlContent();
+            $number = AgMelhorEnvioOrderNfe::extractNfeNumber($xml);
+            if ($invoice_number_mapping->isMappingEnabled() && $number) {
+                $update_data[$invoice_number_mapping->getMappedfield()] = $number;
+            }
+
+            if ($update_data) {
+                Db::getInstance()->update('orders', $update_data, 'id_order=' . (int) $id_order);
+            }
+
+            AgMelhorEnvioShipmentLog::addLog(
+                $id_order,
+                AgMelhorEnvioShipmentLog::EVENT_XML_UPLOADED,
+                'XML da NF-e anexado' . ($nfe->nfe_key ? (' — chave ' . $nfe->nfe_key) : ''),
+                true,
+                null,
+                ['filename' => $nfe->filename, 'nfe_key' => $nfe->nfe_key]
+            );
+
+            // Retry de emissão se etiqueta estiver aguardando
+            $this->module->processPendingLabelEmission($id_order, true);
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'XML anexado com sucesso.',
+            ]);
+        } catch (Exception $e) {
+            echo json_encode([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        exit();
+    }
+
+    public function ajaxProcessRemoveOrderNfeXml()
+    {
+        try {
+            $id_order = (int) Tools::getValue('id_order');
+            $nfe = AgMelhorEnvioOrderNfe::getByIdOrder($id_order);
+            if (!Validate::isLoadedObject($nfe)) {
+                throw new Exception('Não há XML anexado neste pedido.');
+            }
+
+            $filename = $nfe->filename;
+            if (!$nfe->deleteFileAndRecord()) {
+                throw new Exception('Erro ao remover o XML.');
+            }
+
+            AgMelhorEnvioShipmentLog::addLog(
+                $id_order,
+                AgMelhorEnvioShipmentLog::EVENT_XML_REMOVED,
+                'XML da NF-e removido' . ($filename ? (' (' . $filename . ')') : ''),
+                true
+            );
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'XML removido.',
+            ]);
+        } catch (Exception $e) {
+            echo json_encode([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         exit();
     }
 
     public function ajaxProcessCreateLabelForOrder()
     {
-        $id_order = Tools::getValue('id_order');
-        $order  = new Order($id_order);
+        $id_order = (int) Tools::getValue('id_order');
+        $order = new Order($id_order);
 
-        $carrier = new Carrier($order->id_carrier);
-        $carrier = Carrier::getCarrierByReference($carrier->id_reference);
-        $service = AgMelhorEnvioService::getByCarrier($carrier);
-
-        //se a compra não foi feita com uma transportadora utilizada pelo módulo, ela é ignorada
-        if (!Validate::isLoadedObject($service)) {
+        if (!Validate::isLoadedObject($order)) {
             echo json_encode([
                 'success' => false,
-                'error' => 'Esse pedido não foi feito com uma transportadora do Melhor Envio.'
+                'error' => 'Pedido não encontrado.',
             ]);
             exit();
+        }
 
-            return false;
+        $service = null;
+        $id_service = (int) Tools::getValue('id_agmelhorenvio_service');
+        if ($id_service > 0) {
+            $service = new AgMelhorEnvioService($id_service);
+        }
+
+        if (!Validate::isLoadedObject($service)) {
+            $carrier = new Carrier($order->id_carrier);
+            if (Validate::isLoadedObject($carrier) && $carrier->id_reference) {
+                $byReference = Carrier::getCarrierByReference($carrier->id_reference);
+                if (Validate::isLoadedObject($byReference)) {
+                    $carrier = $byReference;
+                }
+            }
+            $service = AgMelhorEnvioService::getByCarrier($carrier);
+        }
+
+        if (!Validate::isLoadedObject($service) || !(int) $service->id_remote) {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Selecione um serviço do Melhor Envio na aba Melhor Envio para gerar a etiqueta.',
+            ]);
+            exit();
         }
 
         //exclui as etiquetas que já existem para o pedido
@@ -627,19 +767,20 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
             $obj->delete();
         }
 
-        $error = AgMelhorEnvioLabel::generateLabelsForOrder($order);
+        $error = AgMelhorEnvioLabel::generateLabelsForOrder($order, $service);
         if ($error !== true) {
             Logger::addLog("agmelhorenvio - Erro gerando etiqueta para o pedido {$order->id} - {$error}", 3);
 
             echo json_encode([
                 'success' => false,
-                'error' => $error
+                'error' => $error,
             ]);
             exit();
         }
 
         echo json_encode([
-            'success' => true
+            'success' => true,
+            'message' => 'Etiquetas geradas com sucesso.',
         ]);
 
         exit();

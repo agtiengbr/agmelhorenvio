@@ -97,10 +97,15 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     protected $main_tab = 'AdminParentShipping';
 
     protected $invoice_number_mapping;
+    protected $invoice_serie_mapping;
     protected $address_number_mapping;
+    protected $address_complement_mapping;
 
     /** @var AgColumnMapping */
     protected $cnpj_mapping;
+
+    /** @var AgColumnMapping */
+    protected $cpf_mapping;
 
     protected static $cache = array();
     protected static $delay = array();
@@ -112,7 +117,8 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.16.26';
+        // release 3.17.0 — order panel card separation
+        $this->version  = '3.17.0';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -2282,56 +2288,44 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                 $options->addOption($option);
             }
 
-            if ($this->getInvoiceNumberMapping()->isMappingEnabled()) {
+            $invoice = $this->getOrderInvoiceData($order);
+            $nfe = AgMelhorEnvioOrderNfe::getByIdOrder($order->id);
+            $xmlContent = Validate::isLoadedObject($nfe) ? $nfe->getXmlContent() : null;
 
-                $invoice = new stdClass;
+            $resolution = AgMelhorEnvioShipmentModeResolver::resolve($service, $invoice, $xmlContent);
 
-                $sql = new DbQuery;
-                $sql->from('orders')
-                    ->where('id_order=' . (int)$order->id);
+            if ($resolution->should_wait) {
+                AgMelhorEnvioShipmentLog::addLog(
+                    $order->id,
+                    AgMelhorEnvioShipmentLog::EVENT_CART_WAIT,
+                    $resolution->wait_reason,
+                    null,
+                    $instance->id
+                );
+                throw new AgMelhorEnvioWaitingForNfeException($resolution->wait_reason);
+            }
 
-                $db_data = Db::getInstance()->getRow($sql);
-
-                if ($this->getInvoiceNumberMapping()->getMappedField() === 'webmania') {
-                    $nfe_info = unserialize($db_data['nfe_info']);
-                    $invoice->number = $nfe_info[0]['n_nfe'];
-                } else {
-                    $invoice->number = @$db_data[$this->getInvoiceNumberMapping()->getMappedfield()];
+            if ($resolution->isCommercial()) {
+                $invoicePayload = new stdClass();
+                $invoicePayload->number = $resolution->invoice_number;
+                $invoicePayload->key = $resolution->invoice_key;
+                if ($resolution->xml_content) {
+                    $invoicePayload->xml_content = $resolution->xml_content;
                 }
 
-                if ($this->getInvoiceSerieMapping()->getMappedField() === 'webmania') {
-                    $nfe_info = unserialize($db_data['nfe_info']);
-                    $invoice->key = $nfe_info[0]['chave_acesso'];
-                } else {
-                    $invoice->key = @$db_data[$this->getInvoiceSerieMapping()->getMappedfield()];
-                }
+                $option = new AgMelhorEnvioRemoteOption;
+                $option->setName('invoice');
+                $option->setValue($invoicePayload);
+                $options->addOption($option);
 
-                if ($invoice->number && $invoice->key) {
-                    $option = new AgMelhorEnvioRemoteOption;
-                    $option->setName('invoice');
-                    $option->setValue($invoice);
-
-                    $options->addOption($option);
-                }
-
-                if ($invoice->number && $invoice->key) {
-                    $option = new AgMelhorEnvioRemoteOption;
-                    $option->setName('non_commercial');
-                    $option->setValue(false);
-
-                    $options->addOption($option);
-                } else {
-                    $option = new AgMelhorEnvioRemoteOption;
-                    $option->setName('non_commercial');
-                    $option->setValue(true);
-
-                    $options->addOption($option);
-                }
+                $option = new AgMelhorEnvioRemoteOption;
+                $option->setName('non_commercial');
+                $option->setValue(false);
+                $options->addOption($option);
             } else {
                 $option = new AgMelhorEnvioRemoteOption;
                 $option->setName('non_commercial');
                 $option->setValue(true);
-
                 $options->addOption($option);
             }
 
@@ -2358,18 +2352,169 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                     throw new Exception($msg_error);
                 }
 
+                AgMelhorEnvioShipmentLog::addLog(
+                    $order->id,
+                    AgMelhorEnvioShipmentLog::EVENT_CART_ATTEMPT,
+                    'Tentativa de adição ao carrinho - Sucesso'
+                        . ($resolution->isCommercial() ? ' (envio comercial)' : ' (envio não comercial)'),
+                    true,
+                    $instance->id,
+                    [
+                        'id_order_remote' => $instance->id_order_remote,
+                        'protocol' => $instance->protocol,
+                        'mode' => $resolution->mode,
+                    ]
+                );
+
                 $return[] = $instance;
                 return $return;
+            } catch (AgMelhorEnvioWaitingForNfeException $e) {
+                throw $e;
             } catch (Exception $e) {
+                AgMelhorEnvioShipmentLog::addLog(
+                    $order->id,
+                    AgMelhorEnvioShipmentLog::EVENT_CART_ATTEMPT,
+                    'Tentativa de adição ao carrinho - Erro: ' . $e->getMessage(),
+                    false,
+                    $instance->id,
+                    $e->getMessage()
+                );
                 $msg_error = "Erro adicionando etiqueta ao carrinho de compras - {$e->getMessage()}  ({$e->getFile()}-{$e->getLine()})";
                 throw new Exception($msg_error);
             }
+        } catch (AgMelhorEnvioWaitingForNfeException $e) {
+            throw $e;
         } catch (Exception $e) {
             $msg_error = "Erro adicionando etiqueta ao carrinho de compras - {$e->getMessage()}  ({$e->getFile()}-{$e->getLine()})";
             throw new Exception($msg_error);
         }
 
         return $return;
+    }
+
+    /**
+     * @param Order $order
+     * @return stdClass
+     */
+    public function getOrderInvoiceData(Order $order)
+    {
+        $invoice = new stdClass();
+        $invoice->number = null;
+        $invoice->key = null;
+
+        if (!$this->getInvoiceNumberMapping()->isMappingEnabled()) {
+            return $invoice;
+        }
+
+        $sql = new DbQuery();
+        $sql->from('orders')->where('id_order=' . (int) $order->id);
+        $db_data = Db::getInstance()->getRow($sql);
+        if (!is_array($db_data)) {
+            $db_data = [];
+        }
+
+        if ($this->getInvoiceNumberMapping()->getMappedField() === 'webmania') {
+            $nfe_info = @unserialize($db_data['nfe_info']);
+            $invoice->number = isset($nfe_info[0]['n_nfe']) ? $nfe_info[0]['n_nfe'] : null;
+        } else {
+            $field = $this->getInvoiceNumberMapping()->getMappedfield();
+            $invoice->number = isset($db_data[$field]) ? $db_data[$field] : null;
+        }
+
+        if ($this->getInvoiceSerieMapping()->isMappingEnabled()) {
+            if ($this->getInvoiceSerieMapping()->getMappedField() === 'webmania') {
+                $nfe_info = @unserialize($db_data['nfe_info']);
+                $invoice->key = isset($nfe_info[0]['chave_acesso']) ? $nfe_info[0]['chave_acesso'] : null;
+            } else {
+                $field = $this->getInvoiceSerieMapping()->getMappedfield();
+                $invoice->key = isset($db_data[$field]) ? $db_data[$field] : null;
+            }
+        }
+
+        $nfe = AgMelhorEnvioOrderNfe::getByIdOrder($order->id);
+        if (Validate::isLoadedObject($nfe)) {
+            if (!$invoice->key && $nfe->nfe_key) {
+                $invoice->key = $nfe->nfe_key;
+            }
+            if (!$invoice->number) {
+                $xml = $nfe->getXmlContent();
+                $extractedNumber = AgMelhorEnvioOrderNfe::extractNfeNumber($xml);
+                if ($extractedNumber) {
+                    $invoice->number = $extractedNumber;
+                }
+            }
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * Emite/compra etiquetas pendentes de um pedido (auto-emissão ou retry após XML).
+     *
+     * @param int $id_order
+     * @param bool $ignoreAutoConfig Se true, tenta mesmo com emissão automática desligada (ex.: upload de XML).
+     * @return void
+     */
+    public function processPendingLabelEmission($id_order, $ignoreAutoConfig = false)
+    {
+        if (!$ignoreAutoConfig) {
+            if (!AgMelhorEnvioConfiguration::getAutoGenerateLabels() || AgMelhorEnvioConfiguration::getPaymentMode() != 0) {
+                return;
+            }
+        } elseif (AgMelhorEnvioConfiguration::getPaymentMode() != 0) {
+            return;
+        }
+
+        $labels = AgMelhorEnvioLabel::getByIdOrder($id_order);
+        if (!count($labels)) {
+            return;
+        }
+
+        $label = array_reverse($labels)[0];
+        $obj = new AgMelhorEnvioLabel($label['id_agmelhorenvio_label']);
+        if ($obj->status !== AgMelhorEnvioLabelsStatusesEnum::TO_BE_GENERATED) {
+            return;
+        }
+
+        try {
+            $this->addLabelToCart($obj->id);
+            $obj = new AgMelhorEnvioLabel($obj->id);
+
+            if (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] == 'on' || $_SERVER['HTTPS'] == 1)
+                || isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https'
+            ) {
+                $protocol = 'https://';
+            } else {
+                $protocol = 'http://';
+            }
+
+            $current_link = $protocol . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+            $current_link = explode('index.php', $current_link)[0];
+            $redirect_url = $current_link . $this->context->link->getAdminLink('AdminAgMelhorEnvioLabels')
+                . '&returnGateway&id_agmelhorenvio_label=' . $obj->id;
+
+            $response = AgMelhorEnvioGateway::buyLabels([$obj->id_order_remote], 0, $redirect_url);
+
+            if ($response === true) {
+                $obj->status = 'released';
+                $obj->update();
+                AgMelhorEnvioShipmentLog::addLog(
+                    $id_order,
+                    AgMelhorEnvioShipmentLog::EVENT_LABEL_PAID,
+                    'Etiqueta paga',
+                    true,
+                    $obj->id
+                );
+            }
+        } catch (AgMelhorEnvioWaitingForNfeException $e) {
+            // já registrado no histórico
+        } catch (Exception $e) {
+            Logger::addLog(
+                'agmelhorenvio - Erro adicionando etiqueta ao carrinho de compras para o pedido '
+                . $id_order . ' - ' . $e->getMessage(),
+                3
+            );
+        }
     }
 
     public function hookActionValidateOrder($params)
@@ -2416,37 +2561,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                 Logger::addLog('agmelhorenvio - não foi possível gerar a etiqueta porque está faltando adicionar o nome do estado no formulário do endereço' . $param['id_order'], 3);
             }
 
-            $labels = AgMelhorEnvioLabel::getByIdOrder($param["id_order"]);
-            //se o pedido não possui nenhuma etiqueta do Melhor Envio, não gera uma nova.
-            //as etiquetas são geradas no método validateOrde
-            if (count($labels) == 0) {
-                return;;
-            }
-
-            //utiliza sempre a etiqueta mais recente
-            $label = array_reverse($labels)[0];
-
-            $this->addLabelToCart($label['id_agmelhorenvio_label']);
-
-            $obj = new AgMelhorEnvioLabel($label['id_agmelhorenvio_label']);
-
-            if (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] == 'on' || $_SERVER['HTTPS'] == 1) ||  isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https') {
-                $protocol = 'https://';
-            } else {
-                $protocol = 'http://';
-            }
-
-            $current_link = $protocol . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
-            $current_link = explode('index.php', $current_link)[0];
-
-            $redirect_url = $current_link . $this->context->link->getAdminLink('AdminAgMelhorEnvioLabels') . '&returnGateway&id_agmelhorenvio_label=' . $obj->id;
-
-            $response = AgMelhorEnvioGateway::buyLabels([$obj->id_order_remote], 0, $redirect_url);
-            
-            if ($response === true) {
-                $obj->status = 'released';
-                $obj->update();
-            }
+            $this->processPendingLabelEmission((int) $param['id_order'], false);
         } catch (Exception $e) {
             Logger::addLog('agmelhorenvio - Erro adicionando etiqueta ao carrinho de compras para o pedido ' . $param['id_order'] . ' - ' . $e->getMessage(), 3);
         }
@@ -2833,6 +2948,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 
         if ($includeViewJs) {
             $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_view.js');
+            $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_order_panel.js');
         } else {
             if (version_compare(_PS_VERSION_, '1.7.7', '>=')) {
                 $controller->addJs(_PS_MODULE_DIR_ . $this->name . '/views/js/admin_orders_list.1.7.7.js');
@@ -2969,80 +3085,102 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 
     public function hookDisplayAdminOrderTabLink($params)
     {
-        $invoice_number_mapping = $this->getInvoiceNumberMapping();
-        $invoice_serie_mapping = $this->getInvoiceSerieMapping();
-
-        if ($invoice_number_mapping->getMappedfield() != 'agmelhorenvio_invoice_number' || $invoice_serie_mapping->getMappedfield() != 'agmelhorenvio_invoice_serie') {
-            return;
+        $id_order = isset($params['id_order']) ? (int) $params['id_order'] : (int) Tools::getValue('id_order');
+        if (!$this->shouldDisplayOrderMelhorEnvioTab($id_order)) {
+            return '';
         }
 
-        $this->context->smarty->assign(['id_order' => $params['id_order']]);
+        $this->context->smarty->assign(['id_order' => $id_order]);
         return $this->display(_PS_MODULE_DIR_ . $this->name, 'views/templates/admin/orders/preview/tabs_fields.tpl');
     }
 
     public function hookDisplayAdminOrderTabContent($params)
     {
-        $invoice_number_mapping = $this->getInvoiceNumberMapping();
-        $invoice_serie_mapping = $this->getInvoiceSerieMapping();
-
-        $invoice_number = '';
-        $invoice_serie = '';
-
-        if ($invoice_number_mapping->getMappedfield() != 'agmelhorenvio_invoice_number' || $invoice_serie_mapping->getMappedfield() != 'agmelhorenvio_invoice_serie') {
-            return;
+        $id_order = isset($params['id_order']) ? (int) $params['id_order'] : (int) Tools::getValue('id_order');
+        if (!$this->shouldDisplayOrderMelhorEnvioTab($id_order)) {
+            return '';
         }
 
-        if (Tools::isSubmit('agmelhorenvio-invoices')) {
-            $id_order = Tools::getValue('id_order');
-
-            if (!$invoice_number_mapping->isMappingEnabled()) {
-                throw new Exception("O mapeamento do número da nota fiscal não está configurado.");
-            }
-
-            $invoice_serie_mapping = $this->getInvoiceSerieMapping();
-            if (!$invoice_serie_mapping->isMappingEnabled()) {
-                throw new Exception("O mapeamento da série da nota fiscal não está configurado.");
-            }
-
-            $update_data = [];
-
-            $update_data[$invoice_number_mapping->getMappedfield()] = Tools::getValue('agmelhorenvio_invoice_number');
-            $update_data[$invoice_serie_mapping->getMappedfield()] = Tools::getValue('agmelhorenvio_invoice_serie');
-
-            $r = Db::getInstance()->update('orders', $update_data, 'id_order=' . (int)$id_order);
-            if (!$r) {
-                $msg_error = Db::getInstance()->getMsgError();
-
-                Logger::addLog("agmelhorenvio - Erro atualizando dados do pedido {$id_order} no banco de dados - $msg_error");
-                throw new Exception("Erro atualizando dados do pedido no banco de dados.");
-            }
-
-            echo json_encode([
-                'success' => true
-            ]);
-        }
-
-        $sql = new DbQuery;
-        $sql->from('orders')->where('id_order=' . (int)Tools::getValue('id_order'));
-        $invoice_data = Db::getInstance()->getRow($sql);
-
-        if ($this->getInvoiceNumberMapping()->isMappingEnabled()) {
-            $invoice_number = $invoice_data[$this->getInvoiceNumberMapping()->getMappedField()];
-        }
-
-        if ($this->getInvoiceSerieMapping()->isMappingEnabled()) {
-            $invoice_serie = $invoice_data[$this->getInvoiceSerieMapping()->getMappedField()];
-        }
-
-        $this->context->smarty->assign(
-            [
-                // 'url' => $this->context->link,
-                'id_order' => $params['id_order'],
-                'agmelhorenvio_invoice_number' => $invoice_number,
-                'agmelhorenvio_invoice_serie' => $invoice_serie,
-            ]
+        $order = new Order($id_order);
+        $can_edit_invoice_fields = (
+            $this->getInvoiceNumberMapping()->getMappedfield() === 'agmelhorenvio_invoice_number'
+            && $this->getInvoiceSerieMapping()->getMappedfield() === 'agmelhorenvio_invoice_serie'
         );
+
+        $invoice = $this->getOrderInvoiceData($order);
+        $invoice_number = $invoice->number;
+        $invoice_serie = $invoice->key;
+
+        $nfe = AgMelhorEnvioOrderNfe::getByIdOrder($id_order);
+        $nfeData = null;
+        if (Validate::isLoadedObject($nfe)) {
+            $nfeData = [
+                'filename' => $nfe->filename,
+                'nfe_key' => $nfe->nfe_key,
+                'date_upd' => $nfe->date_upd,
+            ];
+        }
+
+        $orderService = AgMelhorEnvioService::getByCarrier(new Carrier($order->id_carrier));
+        $selected_service_id = Validate::isLoadedObject($orderService) ? (int) $orderService->id : 0;
+        $is_melhor_envio_order = $selected_service_id > 0;
+
+        $services_options = [];
+        try {
+            foreach (AgMelhorEnvioService::getAll() as $svc) {
+                if (!(int) $svc->id_remote) {
+                    continue;
+                }
+                $label = trim((string) $svc->name);
+                if ($label === '') {
+                    $label = trim($svc->carrier_name . ' - ' . $svc->service_name);
+                }
+                $services_options[] = [
+                    'id' => (int) $svc->id,
+                    'id_remote' => (int) $svc->id_remote,
+                    'name' => $label,
+                    'installed' => (int) $svc->id_carrier > 0,
+                ];
+            }
+        } catch (Exception $e) {
+            $services_options = [];
+        }
+
+        usort($services_options, function ($a, $b) {
+            return strcmp($a['name'], $b['name']);
+        });
+
+        $this->context->smarty->assign([
+            'id_order' => $id_order,
+            'agmelhorenvio_invoice_number' => $invoice_number,
+            'agmelhorenvio_invoice_serie' => $invoice_serie,
+            'can_edit_invoice_fields' => $can_edit_invoice_fields,
+            'nfe' => $nfeData,
+            'shipment_logs' => AgMelhorEnvioShipmentLog::getByIdOrder($id_order),
+            'agmelhorenvio_ajax_url' => $this->getAdminOrdersAjaxUrl(),
+            'melhor_envio_services' => $services_options,
+            'selected_service_id' => $selected_service_id,
+            'is_melhor_envio_order' => $is_melhor_envio_order,
+            'order_labels' => AgMelhorEnvioLabel::getByIdOrder($id_order),
+        ]);
+
         return $this->display(_PS_MODULE_DIR_ . $this->name, 'views/templates/admin/orders/preview/content_fields.tpl');
+    }
+
+    /**
+     * Aba Melhor Envio em qualquer pedido (permite gerar etiqueta mesmo sem carrier ME).
+     *
+     * @param int $id_order
+     * @return bool
+     */
+    protected function shouldDisplayOrderMelhorEnvioTab($id_order)
+    {
+        if ($id_order <= 0) {
+            return false;
+        }
+
+        $order = new Order($id_order);
+        return Validate::isLoadedObject($order);
     }
 
     public function hookDisplayAdminProductsExtra()

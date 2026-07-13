@@ -5,3 +5,4 @@ cache/**
 config_br.xml
 
 dist/
+var/
