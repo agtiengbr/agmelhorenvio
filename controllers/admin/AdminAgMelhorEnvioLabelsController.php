@@ -670,8 +670,8 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
                 ['filename' => $nfe->filename, 'nfe_key' => $nfe->nfe_key]
             );
 
-            // Retry de emissão se etiqueta estiver aguardando
-            $this->module->processPendingLabelEmission($id_order, true);
+            // Retry só se a emissão automática estiver habilitada (respeita a config da loja)
+            $this->module->processPendingLabelEmission($id_order);
 
             echo json_encode([
                 'success' => true,

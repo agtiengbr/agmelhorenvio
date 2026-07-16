@@ -117,8 +117,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        // release 3.17.0 — order panel card separation
-        $this->version  = '3.17.0';
+        $this->version  = '3.17.1';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -2450,18 +2449,14 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 
     /**
      * Emite/compra etiquetas pendentes de um pedido (auto-emissão ou retry após XML).
+     * Só executa se a emissão automática estiver habilitada e o modo de pagamento for saldo ME.
      *
      * @param int $id_order
-     * @param bool $ignoreAutoConfig Se true, tenta mesmo com emissão automática desligada (ex.: upload de XML).
      * @return void
      */
-    public function processPendingLabelEmission($id_order, $ignoreAutoConfig = false)
+    public function processPendingLabelEmission($id_order)
     {
-        if (!$ignoreAutoConfig) {
-            if (!AgMelhorEnvioConfiguration::getAutoGenerateLabels() || AgMelhorEnvioConfiguration::getPaymentMode() != 0) {
-                return;
-            }
-        } elseif (AgMelhorEnvioConfiguration::getPaymentMode() != 0) {
+        if (!AgMelhorEnvioConfiguration::getAutoGenerateLabels() || AgMelhorEnvioConfiguration::getPaymentMode() != 0) {
             return;
         }
 
@@ -2561,7 +2556,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                 Logger::addLog('agmelhorenvio - não foi possível gerar a etiqueta porque está faltando adicionar o nome do estado no formulário do endereço' . $param['id_order'], 3);
             }
 
-            $this->processPendingLabelEmission((int) $param['id_order'], false);
+            $this->processPendingLabelEmission((int) $param['id_order']);
         } catch (Exception $e) {
             Logger::addLog('agmelhorenvio - Erro adicionando etiqueta ao carrinho de compras para o pedido ' . $param['id_order'] . ' - ' . $e->getMessage(), 3);
         }
