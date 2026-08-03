@@ -117,7 +117,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.18.0';
+        $this->version  = '3.18.1';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -2032,7 +2032,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         }
     }
 
-    public function simulateAllCarriersForProducts($postcode, $products, $cart_value, $carriers = [], Address $from_address = null)
+    public function simulateAllCarriersForProducts($postcode, $products, $cart_value, $carriers = [], ?Address $from_address = null)
     {
         if (!$this->active) {
             return array();
@@ -2603,7 +2603,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         return $address;
     }
 
-    public function getFromRemoteAddress(AgMelhorEnvioLabel $label = null)
+    public function getFromRemoteAddress(?AgMelhorEnvioLabel $label = null)
     {
         $from = $this->getFromAddress();
 
