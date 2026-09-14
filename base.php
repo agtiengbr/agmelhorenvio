@@ -117,7 +117,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.18.1';
+        $this->version  = '3.18.2';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;

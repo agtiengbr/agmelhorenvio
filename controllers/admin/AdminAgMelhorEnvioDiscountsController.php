@@ -222,6 +222,14 @@ class AdminAgMelhorEnvioDiscountsController extends ModuleAdminController
 			$city = Tools::getValue('city');
 
 			$ret = AddressFinder::findByUfAndCity($uf, $city);
+			if (is_array($ret)) {
+				foreach ($ret as $range) {
+					if (isset($range->min, $range->max)) {
+						$range->zipcode_begin = $range->min;
+						$range->zipcode_end = $range->max;
+					}
+				}
+			}
 
 			echo json_encode($ret);
 			exit();
