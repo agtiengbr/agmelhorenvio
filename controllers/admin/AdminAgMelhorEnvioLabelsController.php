@@ -583,6 +583,9 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
     public function ajaxProcessSaveInvoiceData()
     {
         try {
+            if ($this->module->usesAgNfe()) {
+                throw new Exception('Os dados fiscais deste pedido são administrados no módulo agnfe.');
+            }
             $id_order = (int) Tools::getValue('id_order');
 
             $invoice_number_mapping = $this->module->getInvoiceNumberMapping();
@@ -627,6 +630,9 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
     public function ajaxProcessUploadOrderNfeXml()
     {
         try {
+            if ($this->module->usesAgNfe()) {
+                throw new Exception('Anexe o XML na aba NF-e / DANFE deste pedido.');
+            }
             $id_order = (int) Tools::getValue('id_order');
             if ($id_order <= 0) {
                 throw new Exception('Pedido inválido.');
@@ -690,6 +696,9 @@ class AdminAgMelhorEnvioLabelsController extends ModuleAdminController
     public function ajaxProcessRemoveOrderNfeXml()
     {
         try {
+            if ($this->module->usesAgNfe()) {
+                throw new Exception('O XML deste pedido é administrado no módulo agnfe.');
+            }
             $id_order = (int) Tools::getValue('id_order');
             $nfe = AgMelhorEnvioOrderNfe::getByIdOrder($id_order);
             if (!Validate::isLoadedObject($nfe)) {

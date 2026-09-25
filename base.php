@@ -1175,6 +1175,27 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     protected function renderConfigMappingsTab()
     {
         if (Tools::isSubmit('agmelhorenvio-config-mappings')) {
+            $numberSource = Tools::getValue('agmelhorenvio_invoice_number');
+            $keySource = Tools::getValue('agmelhorenvio_invoice_serie');
+            if (($numberSource === 'agnfe') !== ($keySource === 'agnfe')) {
+                return $this->displayError('Para usar agnfe, selecione agnfe para número e chave da NF-e.');
+            }
+            if ($numberSource === 'agnfe' && !Module::isEnabled('agnfe')) {
+                return $this->displayError('Instale e ative agnfe antes de selecioná-lo como fonte.');
+            }
+            if ($numberSource === 'agnfe') {
+                require_once _PS_MODULE_DIR_ . 'agnfe/classes/AgNfeDocument.php';
+                if (AgNfeDocument::getPendingLegacyOrderIds()) {
+                    return $this->displayError('Importe e confira todos os XMLs antigos no agnfe antes de trocar a fonte.');
+                }
+            }
+            $me_statuses = AgMelhorEnvioLabel::getStatuses();
+            $agnfeState = Module::isEnabled('agnfe') ? (int) Configuration::get('AGNFE_ORDER_STATE') : 0;
+            foreach ($me_statuses as $me_status) {
+                if ($agnfeState && (int) Tools::getValue('AGMELHORENVIO_STATUS_MAPPING_' . $me_status) === $agnfeState) {
+                    return $this->displayError('O estado “Pedido com NF-e gerada” é controlado pelo agnfe.');
+                }
+            }
             $this->getInvoiceNumberMapping()->mapsTo(Tools::getValue('agmelhorenvio_invoice_number'));
             $this->getInvoiceSerieMapping()->mapsTo(Tools::getValue('agmelhorenvio_invoice_serie'));
             $this->getCpfMapping()->mapsTo(Tools::getValue('agmelhorenvio_cpf_mapping'));
@@ -1182,7 +1203,6 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             $this->getAddressNumberMapping()->mapsTo(Tools::getValue('agmelhorenvio_address_number_mapping'));
             $this->getAddressComplementMapping()->mapsTo(Tools::getValue('agmelhorenvio_address_complement_mapping'));
 
-            $me_statuses = AgMelhorEnvioLabel::getStatuses();
             foreach ($me_statuses as $me_status) {
                 Configuration::updateValue('AGMELHORENVIO_STATUS_MAPPING_' . $me_status, Tools::getValue('AGMELHORENVIO_STATUS_MAPPING_' . $me_status));
             }
@@ -1249,6 +1269,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             'input'  => [
                 [
                     'label' => 'Número da Nota Fiscal',
+                    'desc' => 'Selecione “Usar agnfe” aqui e na chave para compartilhar o cadastro único de XML e DANFE.',
                     'name' => 'agmelhorenvio_invoice_number',
                     'type' => 'select',
                     'col' => 4,
@@ -1259,7 +1280,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
                     ]
                 ],
                 [
-                    'label' => 'Série da Nota Fiscal',
+                    'label' => 'Chave de acesso da NF-e',
                     'name' => 'agmelhorenvio_invoice_serie',
                     'type' => 'select',
                     'col' => 4,
@@ -1509,6 +1530,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             'configuration_name' => 'agmelhorenvio_invoice_number_mapping'
         ));
         $this->invoice_number_mapping->addColumn('webmania', 'Módulo Webmania');
+        $this->invoice_number_mapping->addColumn('agnfe', 'Usar agnfe');
 
 
         $this->invoice_serie_mapping = new AgColumnMapping();
@@ -1517,6 +1539,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             'configuration_name' => 'agmelhorenvio_invoice_serie_mapping'
         ));
         $this->invoice_serie_mapping->addColumn('webmania', 'Módulo Webmania');
+        $this->invoice_serie_mapping->addColumn('agnfe', 'Usar agnfe');
 
 
         $this->address_number_mapping = new AgColumnMapping();
@@ -2288,8 +2311,13 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             }
 
             $invoice = $this->getOrderInvoiceData($order);
-            $nfe = AgMelhorEnvioOrderNfe::getByIdOrder($order->id);
-            $xmlContent = Validate::isLoadedObject($nfe) ? $nfe->getXmlContent() : null;
+            if ($this->usesAgNfe()) {
+                require_once _PS_MODULE_DIR_ . 'agnfe/classes/AgNfeDocument.php';
+                $xmlContent = AgNfeDocument::getXmlContent($order->id);
+            } else {
+                $nfe = AgMelhorEnvioOrderNfe::getByIdOrder($order->id);
+                $xmlContent = Validate::isLoadedObject($nfe) ? $nfe->getXmlContent() : null;
+            }
 
             $resolution = AgMelhorEnvioShipmentModeResolver::resolve($service, $invoice, $xmlContent);
 
@@ -2401,6 +2429,16 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         $invoice->number = null;
         $invoice->key = null;
 
+        if ($this->usesAgNfe()) {
+            require_once _PS_MODULE_DIR_ . 'agnfe/classes/AgNfeDocument.php';
+            $doc = AgNfeDocument::getByOrder($order->id);
+            if ($doc && AgNfeDocument::fileExists($doc['xml_path'])) {
+                $invoice->number = $doc['nfe_number'];
+                $invoice->key = $doc['nfe_key'];
+            }
+            return $invoice;
+        }
+
         if (!$this->getInvoiceNumberMapping()->isMappingEnabled()) {
             return $invoice;
         }
@@ -2445,6 +2483,13 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         }
 
         return $invoice;
+    }
+
+    public function usesAgNfe()
+    {
+        return Module::isEnabled('agnfe')
+            && $this->getInvoiceNumberMapping()->getMappedfield() === 'agnfe'
+            && $this->getInvoiceSerieMapping()->getMappedfield() === 'agnfe';
     }
 
     /**
@@ -3097,6 +3142,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
         }
 
         $order = new Order($id_order);
+        $usesAgNfe = $this->usesAgNfe();
         $can_edit_invoice_fields = (
             $this->getInvoiceNumberMapping()->getMappedfield() === 'agmelhorenvio_invoice_number'
             && $this->getInvoiceSerieMapping()->getMappedfield() === 'agmelhorenvio_invoice_serie'
@@ -3150,6 +3196,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             'agmelhorenvio_invoice_number' => $invoice_number,
             'agmelhorenvio_invoice_serie' => $invoice_serie,
             'can_edit_invoice_fields' => $can_edit_invoice_fields,
+            'agmelhorenvio_uses_agnfe' => $usesAgNfe,
             'nfe' => $nfeData,
             'shipment_logs' => AgMelhorEnvioShipmentLog::getByIdOrder($id_order),
             'agmelhorenvio_ajax_url' => $this->getAdminOrdersAjaxUrl(),
