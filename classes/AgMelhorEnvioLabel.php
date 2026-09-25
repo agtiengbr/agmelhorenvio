@@ -205,6 +205,7 @@ class AgMelhorEnvioLabel extends AgObjectModel
     public $reverse;
     public $tracking;
     public $self_tracking;
+    public $self_tracking_email_event = false;
     public $paid_at;
     public $generated_at;
     public $posted_at;
@@ -693,26 +694,44 @@ class AgMelhorEnvioLabel extends AgObjectModel
         $order = new Order($this->id_order);
 
         if (Validate::isLoadedObject($order)) {
-            if ($this->tracking) {
-                if (isset($order->shipping_number)) {
-                    $order->shipping_number = $this->tracking;
+            $carrierTrackingNumber = trim((string) $this->tracking);
+            $selfTrackingNumber = trim((string) $this->self_tracking);
+            $id_order_carrier = $order->getIdOrderCarrier();
+            $order_carrier = $id_order_carrier ? new OrderCarrier($id_order_carrier) : null;
+            $currentTrackingNumber = $order_carrier
+                ? trim((string) $order_carrier->tracking_number)
+                : trim((string) $order->getWsShippingNumber());
+
+            $trackingNumber = $carrierTrackingNumber;
+            if ($trackingNumber === '' && $currentTrackingNumber === '' && $selfTrackingNumber !== '') {
+                if (!empty($this->self_tracking_email_event)) {
+                    $trackingNumber = $selfTrackingNumber;
+                }
+            }
+
+            if ($trackingNumber !== '') {
+                if (isset($order->shipping_number) && trim((string) $order->shipping_number) !== $trackingNumber) {
+                    $order->shipping_number = $trackingNumber;
                     $order->update();
                 }
 
-
-                $id_order_carrier = $order->getIdOrderCarrier();
-
-                if ($id_order_carrier) {
-                    $order_carrier = new OrderCarrier($id_order_carrier);
-
-                    if ($order_carrier->tracking_number != $this->tracking) {
-                        $order_carrier->tracking_number = $this->tracking;
-                        $order_carrier->update();
-                        $this->sendTrackingEmail();
+                if ($order_carrier && trim((string) $order_carrier->tracking_number) !== $trackingNumber) {
+                    $previousTrackingNumber = trim((string) $order_carrier->tracking_number);
+                    $order_carrier->tracking_number = $trackingNumber;
+                    if ($order_carrier->update()) {
+                        $carrierTrackingArrivedAfterSelfTracking = (
+                            $carrierTrackingNumber !== ''
+                            && $selfTrackingNumber !== ''
+                            && $previousTrackingNumber === $selfTrackingNumber
+                        );
+                        if (!$carrierTrackingArrivedAfterSelfTracking) {
+                            $this->sendTrackingEmail($trackingNumber);
+                        }
                     }
                 }
             }
 
+            $this->self_tracking_email_event = false;
 
             //atualização do estado da etiqueta
             if (!AgMelhorEnvioConfiguration::getAgmelhorenvioStatusMappingEnabled()) {
@@ -751,33 +770,47 @@ class AgMelhorEnvioLabel extends AgObjectModel
         return parent::update($null_values);
     }
 
-    public function sendTrackingEmail()
+    public function sendTrackingEmail($trackingNumber = null)
     {
+        if ($trackingNumber === null || $trackingNumber === '') {
+            $trackingNumber = trim((string) $this->tracking);
+            if ($trackingNumber === '') {
+                $trackingNumber = trim((string) $this->self_tracking);
+            }
+        }
+
+        $trackingNumber = trim((string) $trackingNumber);
+        if ($trackingNumber === '') {
+            return false;
+        }
+
         $order = new Order($this->id_order);
         $carrier = new Carrier($order->id_carrier);
         $customer = new Customer($order->id_customer);
 
-        if (Configuration::get('AGMELHORENVIO_CONFIGURATION_SEND_TRACKING_EMAIL')) {
-            Mail::send(
-                (int) $order->id_lang,
-                'agmelhorenvio_tracking',
-                'O código de rastreio do seu pedido ' . $order->reference . ' foi gerado',
-                [
-                    '{tracking_number}' => $this->tracking,
-                    '{tracking_url}' => str_replace('@', $this->tracking, $carrier->url),
-                    '{carrier_name}' => $carrier->name,
-                    '{firstname}' => $customer->firstname,
-                    '{lastname}' => $customer->lastname,
-                    '{order_name}' => $order->reference
-                ],
-                $customer->email,
-                $customer->firstname . ' ' . $customer->lastname,
-                null, // from email
-                null, // from name
-                null, // file attachment
-                null, // mode smtp
-                _PS_MODULE_DIR_  .'agmelhorenvio/mails'
-            );
+        if (!Configuration::get('AGMELHORENVIO_CONFIGURATION_SEND_TRACKING_EMAIL')) {
+            return false;
         }
+
+        return Mail::send(
+            (int) $order->id_lang,
+            'agmelhorenvio_tracking',
+            'O código de rastreio do seu pedido ' . $order->reference . ' foi gerado',
+            [
+                '{tracking_number}' => $trackingNumber,
+                '{tracking_url}' => str_replace('@', $trackingNumber, $carrier->url),
+                '{carrier_name}' => $carrier->name,
+                '{firstname}' => $customer->firstname,
+                '{lastname}' => $customer->lastname,
+                '{order_name}' => $order->reference
+            ],
+            $customer->email,
+            $customer->firstname . ' ' . $customer->lastname,
+            null,
+            null,
+            null,
+            null,
+            _PS_MODULE_DIR_  .'agmelhorenvio/mails'
+        );
     }
 }

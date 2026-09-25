@@ -36,8 +36,8 @@
         </div>
       </div>
 
+      {if !$agmelhorenvio_uses_agnfe}
       <hr>
-
       <h4>Nota fiscal / XML</h4>
       {if $can_edit_invoice_fields}
         <form method="post" class="row" id="agmelhorenvio-invoice-form">
@@ -82,6 +82,7 @@
         </div>
         <p class="help-block">O arquivo é gravado em disco no módulo (não no banco). Necessário para transportadoras como Azul em envios comerciais.</p>
       </div>
+      {/if}
 
       <hr>
 

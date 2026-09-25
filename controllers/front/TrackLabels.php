@@ -53,8 +53,16 @@ class AgMelhorEnvioTrackLabelsModuleFrontController extends ModuleFrontControlle
 				$agme_label->canceled_at    = $label->getCanceledAt();
 				$agme_label->expired_at     = $label->getExpiredAt();
 				$agme_label->created_at     = $label->getCreatedAt();
-				$agme_label->tracking       = $label->getTracking();
-				$agme_label->self_tracking  = $label->getSelfTracking();
+				$previousSelfTracking = trim((string) $agme_label->self_tracking);
+				$currentTracking = $label->getTracking();
+				$currentSelfTracking = $label->getSelfTracking();
+				$agme_label->self_tracking_email_event = (
+				    trim((string) $currentTracking) === ''
+				    && trim((string) $currentSelfTracking) !== ''
+				    && trim((string) $currentSelfTracking) !== $previousSelfTracking
+				);
+				$agme_label->tracking       = $currentTracking;
+				$agme_label->self_tracking  = $currentSelfTracking;
 
 				$agme_label->update();
 
