@@ -117,7 +117,7 @@ class BaseAgMelhorEnvio extends AgCarrierModule
     {
         $this->name     = 'agmelhorenvio';
         $this->tab      = 'shipping_logistics';
-        $this->version  = '3.18.2';
+        $this->version  = '3.18.3';
         $this->author   = 'AGTI';
 
         $this->bootstrap = true;
@@ -197,7 +197,6 @@ class BaseAgMelhorEnvio extends AgCarrierModule
 
     public function hookDisplayTrackingButton($params)
     {
-        // replica a lógica do agcorreios: só exibe o botão se houver rastreio para o pedido
         $idOrder = isset($params['id_order']) ? (int) $params['id_order'] : 0;
         if ($idOrder <= 0) {
             return '';
@@ -208,32 +207,40 @@ class BaseAgMelhorEnvio extends AgCarrierModule
             return '';
         }
 
-        // Busca etiquetas do Melhor Envio vinculadas ao pedido
         $labels = AgMelhorEnvioLabel::getByIdOrder($idOrder);
         if (!is_array($labels) || count($labels) === 0) {
             return '';
         }
 
-        // Verifica se existe ao menos um código de rastreio (tracking ou self_tracking)
-        $hasTracking = false;
-        foreach ($labels as $labelRow) {
-            if (!empty($labelRow['tracking']) || !empty($labelRow['self_tracking'])) {
-                $hasTracking = true;
-                break;
+        $trackingNumber = trim((string) $order->getWsShippingNumber());
+        if ($trackingNumber === '') {
+            $labelTrackingNumber = '';
+            $labelSelfTrackingNumber = '';
+
+            foreach ($labels as $labelRow) {
+                if ($labelTrackingNumber === '' && !empty($labelRow['tracking'])) {
+                    $labelTrackingNumber = trim((string) $labelRow['tracking']);
+                }
+                if ($labelSelfTrackingNumber === '' && !empty($labelRow['self_tracking'])) {
+                    $labelSelfTrackingNumber = trim((string) $labelRow['self_tracking']);
+                }
             }
+
+            $trackingNumber = $labelTrackingNumber !== ''
+                ? $labelTrackingNumber
+                : $labelSelfTrackingNumber;
         }
 
-        if (!$hasTracking) {
+        if ($trackingNumber === '') {
             return '';
         }
 
         $carrier = new Carrier($order->id_carrier);
-
-        $followup = str_replace('@', $order->getWsShippingNumber(), $carrier->url);
+        $followup = str_replace('@', $trackingNumber, $carrier->url);
 
         $this->context->smarty->assign([
             'id_order' => $idOrder,
-            'tracking_number' => $order->getWsShippingNumber(),
+            'tracking_number' => $trackingNumber,
             'followup' => $followup
         ]);
         return $this->display(_PS_MODULE_DIR_ . $this->name, 'views/templates/hook/tracking_button.tpl');
